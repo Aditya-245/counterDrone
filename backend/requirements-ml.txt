@@ -1,0 +1,11 @@
+# SKYGYM - optional machine-learning extras (Red Brain Layer B only).
+#
+# The application runs correctly and passes `make check` WITHOUT these installed.
+# `core/redbrain.py` imports them lazily and simply omits the "learned-swarm"
+# tactic when they are absent.
+#
+#   .venv/Scripts/python -m pip install -r backend/requirements-ml.txt
+#   .venv/Scripts/python backend/training/train_swarm_ppo.py --steps 200000
+gymnasium==1.0.0
+stable-baselines3==2.7.1
+torch==2.14.1

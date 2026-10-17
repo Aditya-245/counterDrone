@@ -13,8 +13,6 @@ from app.config import get_settings
 
 router = APIRouter(prefix="/api", tags=["health"])
 
-_settings = get_settings()
-
 
 class HealthResponse(BaseModel):
     """Payload returned by `GET /api/health`."""
@@ -39,6 +37,7 @@ def health() -> HealthResponse:
     from app.core.schemas import SCHEMA_VERSION
     from app.db.session import get_engine
 
+    settings = get_settings()
     reachable = True
     try:
         from sqlalchemy import text
@@ -58,13 +57,13 @@ def health() -> HealthResponse:
 
     return HealthResponse(
         status="ok" if reachable else "degraded",
-        app=_settings.app_name,
-        version=_settings.version,
+        app=settings.app_name,
+        version=settings.version,
         schema_version=SCHEMA_VERSION,
         python=sys.version.split()[0],
         platform=f"{platform.system()} {platform.release()}",
-        tick_hz=_settings.tick_hz,
-        database=str(_settings.db_path),
+        tick_hz=settings.tick_hz,
+        database=str(settings.db_path),
         db_reachable=reachable,
         llm_available=llm_available,
         learned_policy=describe_policy_availability(),

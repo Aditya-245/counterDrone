@@ -209,7 +209,7 @@ def formation_offsets(kind: FormationKind, count: int, spacing_m: float) -> list
             out.append(Vec3(x=-i * spacing_m, y=0.0, z=0.0))
     elif kind is FormationKind.WEDGE:
         row, col = 0, 0
-        for i in range(n):
+        for _ in range(n):
             out.append(Vec3(x=-row * spacing_m, y=col * spacing_m * 0.9, z=0.0))
             col += 1
             if col > row:
@@ -355,7 +355,11 @@ def _loiter_velocity(
     ctx: BehaviourContext,
     rng: np.random.Generator,
 ) -> Vec3:
-    """Circle a holding point near the site at loiter speed."""
+    """Hold station near the site: circle a slowly orbiting point, then home on it.
+
+    The radial term is what makes this a *hold* rather than a wide circle where
+    the entity happened to spawn.
+    """
     speed = params.loiter_speed_mps
     if spec.speed_mps:
         speed = float(spec.speed_mps)
@@ -364,14 +368,22 @@ def _loiter_velocity(
         y=ctx.site_y + spec.orbit_radius_m * math.sin(ctx.t / 40.0),
         z=params.cruise_altitude_m,
     )
-    radius = math.hypot(position.x - centre.x, position.y - centre.y)
-    tangent = Vec3(x=-(position.y - centre.y), y=position.x - centre.x, z=0.0)
-    mag = max(1e-6, math.hypot(tangent.x, tangent.y))
-    drift = rng.normal(0.0, 0.08, size=2)
+    to_centre = Vec3(x=centre.x - position.x, y=centre.y - position.y, z=0.0)
+    radius = max(1e-6, math.hypot(to_centre.x, to_centre.y))
+    tangent = Vec3(x=-to_centre.y / radius * speed, y=to_centre.x / radius * speed, z=0.0)
+    # Pull toward the holding point, hardest when far from it.
+    pull = min(1.0, radius / max(1.0, spec.orbit_radius_m))
+    radial = Vec3(
+        x=to_centre.x / radius * speed * 2.4 * pull,
+        y=to_centre.y / radius * speed * 2.4 * pull,
+        z=0.0,
+    )
+    drift = rng.normal(0.0, 0.06, size=2)
+    vz = float(np.clip((centre.z - position.z) * 0.4, -6.0, 6.0))
     return Vec3(
-        x=(tangent.x / mag) * speed + float(drift[0]),
-        y=(tangent.y / mag) * speed + float(drift[1]),
-        z=(centre.z - position.z) * 0.2,
+        x=tangent.x + radial.x + float(drift[0]),
+        y=tangent.y + radial.y + float(drift[1]),
+        z=vz,
     )
 
 
@@ -447,7 +459,9 @@ def _lure_velocity(
     speed = max(1.0, params.loiter_speed_mps * 0.7)
     jitter = rng.normal(0.0, 0.7, size=3)
     u = _unit_towards(
-        position, Vec3(x=ctx.site_x, y=ctx.site_y, z=params.cruise_altitude_m), jitter
+        position,
+        Vec3(x=ctx.site_x, y=ctx.site_y, z=params.cruise_altitude_m),
+        Vec3(x=float(jitter[0]), y=float(jitter[1]), z=float(jitter[2])),
     )
     return Vec3(
         x=(u.x + float(jitter[0]) * 0.5) * speed,
@@ -471,15 +485,11 @@ def _swarm_velocity(
     neighbours = 0
     sep_radius = spec.separation_m * 2.5
     for other in ctx.members:
-        d = math.dist(
-            (position.x, position.y, position.z), (other.x, other.y, other.z)
-        )
+        d = math.dist((position.x, position.y, position.z), (other.x, other.y, other.z))
         if d < 1e-3:
             continue
         neighbours += 1
-        cohesion = Vec3(
-            x=cohesion.x + other.x, y=cohesion.y + other.y, z=cohesion.z + other.z
-        )
+        cohesion = Vec3(x=cohesion.x + other.x, y=cohesion.y + other.y, z=cohesion.z + other.z)
         alignment = Vec3(
             x=alignment.x + ctx.leader_vel.x,
             y=alignment.y + ctx.leader_vel.y,

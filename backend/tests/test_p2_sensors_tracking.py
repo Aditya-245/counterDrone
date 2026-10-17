@@ -7,8 +7,8 @@ import math
 import numpy as np
 import pytest
 
-from app.core.entities import params_for
 from app.core.engine import SimEngine
+from app.core.entities import params_for
 from app.core.generator import generate
 from app.core.schemas import (
     DegradationState,
@@ -35,7 +35,6 @@ from app.core.sensors import (
 from app.core.terrain import build_terrain
 from app.core.tracking import Detection, TrackerConfig, TrackTracker
 from app.core.world import EntityState, new_world
-
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -77,7 +76,9 @@ def _world(entity: EntityState, env: EnvSpec | None = None, radar_range: float =
         terrain=TerrainSpec(preset=TerrainPreset.RURAL, resolution=96, scale_m=60.0, seed=3),
         environment=env or EnvSpec(time_of_day="day", visibility_m=8000.0, rain=0.0),
         sensors=[
-            SensorSpec(id="radar1", type=SensorType.RADAR, min_range_m=0.0, max_range_m=radar_range),
+            SensorSpec(
+                id="radar1", type=SensorType.RADAR, min_range_m=0.0, max_range_m=radar_range
+            ),
             SensorSpec(id="eo1", type=SensorType.EO_IR, fov_deg=90.0, max_range_m=2500.0),
             SensorSpec(id="rf1", type=SensorType.RF, max_range_m=3000.0),
             SensorSpec(id="ac1", type=SensorType.ACOUSTIC, max_range_m=700.0),
@@ -169,9 +170,7 @@ def test_radar_emits_false_alarms_from_clutter() -> None:
     world, ctx, _ = _world(entity, EnvSpec(visibility_m=9000.0, rain=0.0))
     radar = RadarSensor(world.sensors["radar1"].spec, ctx)
     rng = np.random.default_rng(5)
-    false_clear = sum(
-        1 for _ in range(400) for d in radar.observe(world, rng) if d.entity_id == ""
-    )
+    false_clear = sum(1 for _ in range(400) for d in radar.observe(world, rng) if d.entity_id == "")
     entity2 = _entity(x=3000.0, rf_active=False)
     world2, ctx2, _ = _world(entity2, EnvSpec(visibility_m=9000.0, rain=0.9))
     radar2 = RadarSensor(world2.sensors["radar1"].spec, ctx2)
@@ -269,7 +268,9 @@ def test_acoustic_is_short_range_and_wind_limited() -> None:
     """Acoustic reach is short and shrinks as the wind picks up."""
     entity = _entity(x=500.0, z=60.0)
     world_c, ctx_c, _ = _world(entity, EnvSpec(wind_speed_mps=1.0))
-    pd_calm = AcousticSensor(world_c.sensors["ac1"].spec, ctx_c).detection_probability(entity, world_c)
+    pd_calm = AcousticSensor(world_c.sensors["ac1"].spec, ctx_c).detection_probability(
+        entity, world_c
+    )
     world_w, ctx_w, _ = _world(entity, EnvSpec(wind_speed_mps=25.0))
     pd_windy = AcousticSensor(world_w.sensors["ac1"].spec, ctx_w).detection_probability(
         entity, world_w
@@ -288,7 +289,11 @@ def test_acoustic_is_short_range_and_wind_limited() -> None:
 
 @pytest.mark.parametrize(
     ("state", "expect_zero"),
-    [(DegradationState.NONE, False), (DegradationState.PARTIAL, False), (DegradationState.FAILED, True)],
+    [
+        (DegradationState.NONE, False),
+        (DegradationState.PARTIAL, False),
+        (DegradationState.FAILED, True),
+    ],
 )
 def test_degradation_states_gate_output(state: DegradationState, expect_zero: bool) -> None:
     """A failed sensor produces nothing; a partial one produces less."""
@@ -305,14 +310,24 @@ def test_degradation_states_gate_output(state: DegradationState, expect_zero: bo
 
 def test_first_detectable_is_noise_free_and_monotone_in_range() -> None:
     """The ground-truth detectability timeline respects range and RF silence."""
+    from app.core.sensors import FIRST_DETECTABLE_PD
+
     near = _entity(x=700.0)
     world_n, ctx_n, _ = _world(near)
     radar_n = RadarSensor(world_n.sensors["radar1"].spec, ctx_n)
-    far = _entity(x=3800.0)
-    world_f, ctx_f, _ = _world(far)
-    radar_f = RadarSensor(world_f.sensors["radar1"].spec, ctx_f)
     assert first_detectable([radar_n], world_n, near)
-    assert not first_detectable([radar_f], world_f, far)
+
+    edge = _entity(x=3990.0)
+    world_f, ctx_f, _ = _world(edge)
+    radar_f = RadarSensor(world_f.sensors["radar1"].spec, ctx_f)
+    assert radar_f.detection_probability(edge, world_f) < FIRST_DETECTABLE_PD
+    assert not first_detectable([radar_f], world_f, edge)
+
+    # An RF-silent target is never detectable by the RF detector, at any range.
+    silent = _entity(x=800.0, rf_active=False)
+    world_s, ctx_s, _ = _world(silent)
+    rf_s = RfSensor(world_s.sensors["rf1"].spec, ctx_s)
+    assert not first_detectable([rf_s], world_s, silent)
 
 
 # --------------------------------------------------------------------------- #
@@ -372,6 +387,55 @@ def test_track_continuity_on_a_synthetic_target() -> None:
     final = tracker.state.tracks[ids.pop()]
     assert final.confirmed
     assert float(np.linalg.norm(final.position - truth)) < 40.0
+
+
+def test_entity_hint_is_stable_and_ignores_blank_ids() -> None:
+    """`entity_hint` must not depend on set iteration order.
+
+    Every sensor reports the same object under its own ground-truth id, and a
+    clutter return carries no id at all. The hint then feeds the oracle's view of
+    *which entity* a track is, so a hash-ordered tie-break or a stray blank id
+    makes the same seeded run score differently from one process to the next.
+    """
+    tracker = TrackTracker(TrackerConfig(), dt=0.1)
+    truth = np.array([-2500.0, 0.0, 120.0])
+    vel = np.array([-18.0, 0.0, 0.0])
+    rng = np.random.default_rng(17)
+    for i in range(30):
+        truth = truth + vel * 0.1
+        dets = [
+            Detection(
+                sensor_id=sid,
+                sensor_type=stype,
+                entity_id=eid,
+                x=float(truth[0] + rng.normal(0, 4.0)),
+                y=float(truth[1] + rng.normal(0, 4.0)),
+                z=float(truth[2] + rng.normal(0, 4.0)),
+                t=i * 0.1,
+                range_m=float(np.linalg.norm(truth)),
+                bearing_deg=0.0,
+                altitude_m=120.0,
+                strength=1.0,
+            )
+            for sid, stype, eid in (
+                ("radar1", "radar", "zulu"),
+                ("eo1", "eo_ir", "alpha"),
+                ("rf1", "rf", ""),
+            )
+        ]
+        tracker.update(dets, t=i * 0.1)
+
+    confirmed = [trk for trk in tracker.state.tracks.values() if trk.confirmed]
+    assert len(confirmed) == 1, f"expected one track, got {len(confirmed)}"
+    track = confirmed[0]
+    assert "" not in track.entity_ids, "a clutter return named an entity"
+    assert set(track.entity_ids) == {"zulu", "alpha"}
+
+    # A perfect tie breaks on the smallest id, whatever order the ids were
+    # recorded or visited in.
+    assert track.entity_hint() == "alpha"
+    track.entity_ids = list(reversed(track.entity_ids))
+    assert track.entity_hint() == "alpha"
 
 
 def test_false_track_rate_is_bounded() -> None:
@@ -436,7 +500,6 @@ def test_fusion_merges_sensors_and_records_contributors() -> None:
 def test_ambiguity_biases_weak_suggestions_toward_hostile() -> None:
     """A high hint bias pushes a low-confidence label guess toward 'hostile'."""
     tracker = TrackTracker(TrackerConfig(), dt=0.1)
-    rng = np.random.default_rng(13)
     for i in range(60):
         tracker.update(
             [

@@ -12,7 +12,7 @@ import hashlib
 import math
 import struct
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, cast
 
 import numpy as np
 
@@ -100,15 +100,13 @@ class EntityState:
             "t_first_detection": self.t_first_detection,
             "t_closest_approach": self.t_closest_approach,
             "min_range_m": None if math.isinf(self.min_range_m) else self.min_range_m,
-            "min_altitude_m": (
-                None if math.isinf(self.min_altitude_m) else self.min_altitude_m
-            ),
+            "min_altitude_m": (None if math.isinf(self.min_altitude_m) else self.min_altitude_m),
             "engaged_count": self.engaged_count,
             "engaged_by": self.engaged_by,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EntityState":
+    def from_dict(cls, data: dict[str, Any]) -> EntityState:
         """Inverse of `to_dict`."""
         pos = data["position"]
         vel = data["velocity"]
@@ -150,7 +148,7 @@ class EffectorState:
     """Mutable per-scenario effector bookkeeping."""
 
     id: str
-    kind: str
+    kind: Literal["soft", "hard"]
     ammo: int
     cooldown_s: float
     max_range_m: float
@@ -174,11 +172,11 @@ class EffectorState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EffectorState":
+    def from_dict(cls, data: dict[str, Any]) -> EffectorState:
         """Inverse of `to_dict`."""
         return cls(
             id=str(data["id"]),
-            kind=str(data["kind"]),
+            kind=cast("Literal['soft', 'hard']", str(data["kind"])),
             ammo=int(data["ammo"]),
             cooldown_s=float(data["cooldown_s"]),
             max_range_m=float(data["max_range_m"]),
@@ -222,7 +220,7 @@ class SensorRuntime:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SensorRuntime":
+    def from_dict(cls, data: dict[str, Any]) -> SensorRuntime:
         """Inverse of `to_dict`."""
         return cls(
             spec=SensorSpec.model_validate(data["spec"]),
@@ -250,7 +248,7 @@ class WorldState:
     events: list[SimEvent] = field(default_factory=list)
     spawned_waves: set[str] = field(default_factory=set)
     fired_scenario_events: set[int] = field(default_factory=set)
-    status: str = "running"
+    status: Literal["running", "paused", "finished"] = "running"
     paused: bool = False
     rng_draws: int = 0
     """Number of random variates consumed; part of the determinism contract."""
@@ -272,7 +270,9 @@ class WorldState:
         self, kind: EventKind, message: str = "", entity_id: str | None = None, **data: Any
     ) -> SimEvent:
         """Append an event to the world event log and return it."""
-        ev = SimEvent(t=round(self.t, 4), kind=kind, entity_id=entity_id, message=message, data=data)
+        ev = SimEvent(
+            t=round(self.t, 4), kind=kind, entity_id=entity_id, message=message, data=data
+        )
         self.events.append(ev)
         return ev
 
@@ -309,7 +309,7 @@ class WorldState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorldState":
+    def from_dict(cls, data: dict[str, Any]) -> WorldState:
         """Inverse of `to_dict`."""
         world = cls(
             scenario_id=str(data["scenario_id"]),
@@ -319,8 +319,8 @@ class WorldState:
             dt=float(data["dt"]),
             duration_s=float(data["duration_s"]),
             spawned_waves=set(data.get("spawned_waves", [])),
-            fired_scenario_events=set(int(i) for i in data.get("fired_scenario_events", [])),
-            status=str(data.get("status", "running")),
+            fired_scenario_events={int(i) for i in data.get("fired_scenario_events", [])},
+            status=cast("Literal['running', 'paused', 'finished']", data.get("status", "running")),
             paused=bool(data.get("paused", False)),
             rng_draws=int(data.get("rng_draws", 0)),
             engagement_log=list(data.get("engagement_log", [])),
@@ -338,7 +338,7 @@ class WorldState:
         world.events = [SimEvent.model_validate(e) for e in data.get("events", [])]
         return world
 
-    def clone(self) -> "WorldState":
+    def clone(self) -> WorldState:
         """Deep copy, used by the counterfactual fork so replays stay independent."""
         return WorldState.from_dict(self.to_dict())
 
@@ -445,13 +445,13 @@ def new_world(scenario: Scenario, dt: float = 0.1) -> WorldState:
             state=spec.initial_state,
             azimuth_deg=0.0,
         )
-    for spec in scenario.effectors:
-        world.effectors[spec.id] = EffectorState(
-            id=spec.id,
-            kind=spec.kind,
-            ammo=spec.ammunition,
-            cooldown_s=spec.cooldown_s,
-            max_range_m=spec.max_range_m,
+    for effector in scenario.effectors:
+        world.effectors[effector.id] = EffectorState(
+            id=effector.id,
+            kind=effector.kind,
+            ammo=effector.ammunition,
+            cooldown_s=effector.cooldown_s,
+            max_range_m=effector.max_range_m,
         )
     return world
 

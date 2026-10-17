@@ -1,7 +1,7 @@
 """Headless scenario runner used by `make headless` and by the tests.
 
-    python -m app.core.headless --scenario scenarios/scn_solo_fpv_dusk.json
-    python -m app.core.headless --seed 4242 --difficulty 0.6
+python -m app.core.headless --scenario scenarios/scn_solo_fpv_dusk.json
+python -m app.core.headless --seed 4242 --difficulty 0.6
 """
 
 from __future__ import annotations
@@ -36,12 +36,16 @@ def print_paths(scenario: Scenario, dt: float = 0.2, sample_every_s: float = 5.0
     print(f"scenario   : {scenario.id}  ({scenario.name})")
     print(f"seed       : {scenario.seed}")
     print(f"duration   : {scenario.duration_s} s @ {1 / dt:g} Hz")
-    print(f"entities   : {scenario.threat_count()} "
-          f"({scenario.hostile_count()} hostile, {sum(w.count for w in scenario.decoys)} decoy)")
+    print(
+        f"entities   : {scenario.threat_count()} "
+        f"({scenario.hostile_count()} hostile, {sum(w.count for w in scenario.decoys)} decoy)"
+    )
     print(f"final hash : {final}")
     print("")
-    print(f"{'t':>7}  {'entity':<16} {'class':<15} {'label':<8} "
-          f"{'x':>8} {'y':>8} {'z':>7} {'rng':>7}  status")
+    print(
+        f"{'t':>7}  {'entity':<16} {'class':<15} {'label':<8} "
+        f"{'x':>8} {'y':>8} {'z':>7} {'rng':>7}  status"
+    )
     print("-" * 100)
 
     next_sample = 0.0
@@ -55,8 +59,10 @@ def print_paths(scenario: Scenario, dt: float = 0.2, sample_every_s: float = 5.0
                 if not ent.active and ent.neutralised_t is None:
                     continue
                 d = ent.distance_to_site()
-                status = "NEUTRALISED" if ent.neutralised else (
-                    "BREACHED" if ent.reached_perimeter_t is not None else "tracking"
+                status = (
+                    "NEUTRALISED"
+                    if ent.neutralised
+                    else ("BREACHED" if ent.reached_perimeter_t is not None else "tracking")
                 )
                 print(
                     f"{t:7.1f}  {ent.id:<16} {ent.entity_class.value:<15} "
@@ -74,7 +80,8 @@ def print_paths(scenario: Scenario, dt: float = 0.2, sample_every_s: float = 5.0
     print(f"state hash after full run : {engine.state_hash()}")
     print(f"events                   : {len(engine.state.world.events)}")
     breached = [
-        e for e in engine.state.world.entities.values()
+        e
+        for e in engine.state.world.entities.values()
         if e.label.value == "hostile" and e.reached_perimeter_t is not None
     ]
     print(f"hostiles that breached    : {len(breached)}")
@@ -86,7 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Run a SKYGYM scenario headless.")
     ap.add_argument("--scenario", help="Scenario id (scenarios/<id>.json) or a JSON path.")
     ap.add_argument("--seed", type=int, default=None, help="Generate a scenario from this seed.")
-    ap.add_argument("--difficulty", type=float, default=None, help="0..1 difficulty for generation.")
+    ap.add_argument(
+        "--difficulty", type=float, default=None, help="0..1 difficulty for generation."
+    )
     ap.add_argument("--dt", type=float, default=0.2)
     ap.add_argument("--sample", type=float, default=5.0, help="Sampling period in seconds.")
     args = ap.parse_args(argv)

@@ -40,7 +40,11 @@ class Settings(BaseSettings):
     # --- optional local LLM (scenario builder only) ----------------------
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b-instruct"
-    ollama_timeout_s: float = 30.0
+    # Local CPU inference on a modest laptop runs a 1B model at roughly
+    # 5-15 tok/s; a 2048-token JSON answer can legitimately need over a
+    # minute. 30 s only ever produced timeouts that looked like format
+    # failures. Fail-fast on format (see _MAX_PROSE_RETRIES) instead.
+    ollama_timeout_s: float = 90.0
     ollama_enabled: bool = True
 
     # --- red brain layer B (optional) ------------------------------------

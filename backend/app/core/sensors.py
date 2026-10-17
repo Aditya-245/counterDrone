@@ -1,7 +1,7 @@
 """The four sensor models behind one interface.
 
     class Sensor:
-        def observe(self, world: WorldState, rng: np.random.Generator) -> list[Detection]
+        def observe(self, world: WorldState, rng: RngLike) -> list[Detection]
 
 Every sensor is abstract and generic. The parameter tables below are invented
 for simulation: ``rcs_m2`` is a scatter parameter used to scale detection
@@ -27,6 +27,7 @@ from typing import Final
 import numpy as np
 
 from app.core.entities import CLASS_TABLE, params_for
+from app.core.rng import RngLike
 from app.core.schemas import (
     DegradationState,
     EntityClass,
@@ -97,7 +98,10 @@ class SensorContext:
 #: Coarse size bands keyed by the abstract scatter parameter. Weights are
 #: deliberately ambiguous: a radar return cannot by itself identify a class.
 _RCS_BANDS: Final[tuple[tuple[float, dict[EntityClass, float]], ...]] = (
-    (0.006, {EntityClass.FPV_FAST: 0.38, EntityClass.QUAD_SMALL: 0.34, EntityClass.BIRD_FLOCK: 0.28}),
+    (
+        0.006,
+        {EntityClass.FPV_FAST: 0.38, EntityClass.QUAD_SMALL: 0.34, EntityClass.BIRD_FLOCK: 0.28},
+    ),
     (
         0.022,
         {
@@ -107,14 +111,22 @@ _RCS_BANDS: Final[tuple[tuple[float, dict[EntityClass, float]], ...]] = (
             EntityClass.KITE_BALLOON: 0.14,
         },
     ),
-    (0.09, {EntityClass.FIXED_WING: 0.52, EntityClass.KITE_BALLOON: 0.32, EntityClass.QUAD_SMALL: 0.16}),
+    (
+        0.09,
+        {
+            EntityClass.FIXED_WING: 0.52,
+            EntityClass.KITE_BALLOON: 0.32,
+            EntityClass.QUAD_SMALL: 0.16,
+        },
+    ),
     (math.inf, {EntityClass.CIVIL_AIRCRAFT: 0.88, EntityClass.FIXED_WING: 0.12}),
 )
 
 #: Detection probability at which a target counts as "first detectable".
-#: Chosen to match the level at which the M-of-N initiator realistically starts
-#: a track, so detection latency measures operator delay rather than sensor luck.
-FIRST_DETECTABLE_PD: Final[float] = 0.20
+#: This is deliberately low: it marks the first moment a track could
+#: *legitimately* appear, not the moment it certainly will. Detection latency
+#: then measures how long the operator took to notice, not sensor luck.
+FIRST_DETECTABLE_PD: Final[float] = 0.05
 
 #: Label prior implied by an entity class.
 _LABEL_PRIOR: Final[dict[EntityClass, LabelType]] = {
@@ -167,7 +179,7 @@ class Sensor(ABC):
 
     # -- interface ----------------------------------------------------- #
     @abstractmethod
-    def observe(self, world: WorldState, rng: np.random.Generator) -> list[Detection]:
+    def observe(self, world: WorldState, rng: RngLike) -> list[Detection]:
         """Return this sensor's detections for the current instant."""
 
     @abstractmethod
@@ -289,8 +301,10 @@ class RadarSensor(Sensor):
         range_term = max(0.0, 1.0 - (slant_range / rmax) ** 4.0)
         speed = entity.speed_mps
         # Minimum-speed filtering: slow hoverers are much harder.
-        speed_term = 1.0 if speed >= self.min_speed_mps else 0.45 + 0.55 * (
-            speed / max(1e-6, self.min_speed_mps)
+        speed_term = (
+            1.0
+            if speed >= self.min_speed_mps
+            else 0.45 + 0.55 * (speed / max(1e-6, self.min_speed_mps))
         )
         base = 0.95 * rcs_term * range_term * speed_term
         base *= self.los_factor(world, entity)
@@ -315,7 +329,7 @@ class RadarSensor(Sensor):
             return 0.0
         return self._pd(entity, world, slant)
 
-    def observe(self, world: WorldState, rng: np.random.Generator) -> list[Detection]:
+    def observe(self, world: WorldState, rng: RngLike) -> list[Detection]:
         """Radar scan: real detections plus clutter-driven false alarms."""
         if self.effective_state(world) is DegradationState.FAILED:
             return []
@@ -337,7 +351,7 @@ class RadarSensor(Sensor):
     def _make_detection(
         self,
         world: WorldState,
-        rng: np.random.Generator,
+        rng: RngLike,
         ent: EntityState,
         sx: float,
         sy: float,
@@ -397,7 +411,7 @@ class RadarSensor(Sensor):
         )
 
     def _false_alarms(
-        self, world: WorldState, rng: np.random.Generator, sx: float, sy: float, sz: float
+        self, world: WorldState, rng: RngLike, sx: float, sy: float, sz: float
     ) -> list[Detection]:
         rmin, rmax = self.effective_range(world)
         rate = self.base_clutter_rate * self.clutter_factor()
@@ -483,7 +497,7 @@ class EoIrSensor(Sensor):
             pd *= 0.6
         return float(np.clip(pd, 0.0, 0.97))
 
-    def observe(self, world: WorldState, rng: np.random.Generator) -> list[Detection]:
+    def observe(self, world: WorldState, rng: RngLike) -> list[Detection]:
         """One EO/IR frame; returns at most one detection per visible entity."""
         if self.effective_state(world) is DegradationState.FAILED:
             return []
@@ -506,7 +520,7 @@ class EoIrSensor(Sensor):
     def _make_detection(
         self,
         world: WorldState,
-        rng: np.random.Generator,
+        rng: RngLike,
         ent: EntityState,
         sx: float,
         sy: float,
@@ -609,7 +623,7 @@ class RfSensor(Sensor):
             pd *= 0.6
         return float(np.clip(pd, 0.0, 0.95))
 
-    def observe(self, world: WorldState, rng: np.random.Generator) -> list[Detection]:
+    def observe(self, world: WorldState, rng: RngLike) -> list[Detection]:
         """Emit one coarse, bearing-limited fix per detected emitter."""
         if self.effective_state(world) is DegradationState.FAILED:
             return []
@@ -685,14 +699,18 @@ class AcousticSensor(Sensor):
         if not ok:
             return 0.0
         params = params_for(entity.entity_class)
-        pd = 0.9 * params.acoustic_level * (1.0 - (slant / max(1.0, self.effective_range(world)[1])) ** 1.1)
+        pd = (
+            0.9
+            * params.acoustic_level
+            * (1.0 - (slant / max(1.0, self.effective_range(world)[1])) ** 1.1)
+        )
         pd *= self._wind_factor()
         # Acoustics are indifferent to terrain masking but do not see far.
         if self.effective_state(world) is DegradationState.PARTIAL:
             pd *= 0.55
         return float(np.clip(pd, 0.0, 0.9))
 
-    def observe(self, world: WorldState, rng: np.random.Generator) -> list[Detection]:
+    def observe(self, world: WorldState, rng: RngLike) -> list[Detection]:
         """Emit one coarse fix per audible entity inside the array's envelope."""
         if self.effective_state(world) is DegradationState.FAILED:
             return []
@@ -711,7 +729,6 @@ class AcousticSensor(Sensor):
             px = ent.position.x + float(rng.normal(0.0, sig))
             py = ent.position.y + float(rng.normal(0.0, sig))
             pz = ent.position.z + float(rng.normal(0.0, sig))
-            params = params_for(ent.entity_class)
             evidence = {EntityClass.BIRD_FLOCK: 0.10 * strength, ent.entity_class: 0.10 * strength}
             out.append(
                 Detection(
@@ -771,15 +788,11 @@ def sensor_from_spec(spec: SensorSpec, ctx: SensorContext) -> Sensor:
 
 def build_sensors(scenario: Scenario, terrain: Terrain) -> list[Sensor]:
     """Instantiate every sensor declared by `scenario`."""
-    ctx = SensorContext(
-        terrain=terrain, environment=scenario.environment, scenario=scenario
-    )
+    ctx = SensorContext(terrain=terrain, environment=scenario.environment, scenario=scenario)
     return [sensor_from_spec(spec, ctx) for spec in scenario.sensors]
 
 
-def first_detectable(
-    sensors: list[Sensor], world: WorldState, entity: EntityState
-) -> bool:
+def first_detectable(sensors: list[Sensor], world: WorldState, entity: EntityState) -> bool:
     """True when at least one operational sensor could legitimately see `entity`.
 
     Noise-free, and evaluated at the threshold at which a track could actually

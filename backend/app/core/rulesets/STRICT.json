@@ -1,0 +1,128 @@
+{
+  "id": "STRICT",
+  "title": "STRICT - positive identification required before any engagement",
+  "description": "Nothing is engaged until the operator has positively identified the track as hostile. Warning and holding are mandatory for anything else. Any engagement over a declared civil sector is a violation regardless of the target.",
+  "defaults": {
+    "require_id_before_engage": true,
+    "allowed_engage_labels": ["hostile"],
+    "friend_or_civil_warning_required": true,
+    "collateral_sector_tolerance": 0.0,
+    "late_engage_threshold_s": 20.0,
+    "min_track_quality": 0.2,
+    "require_warning_before_engage": true
+  },
+  "tree": {
+    "id": "root",
+    "condition": {"op": "always"},
+    "branches": [
+      {
+        "id": "no_engagement",
+        "condition": {"op": "no_engagement"},
+        "branches": [
+          {
+            "id": "missed_hostile",
+            "condition": {"op": "label_is", "value": "hostile"},
+            "leaf": {
+              "verdict": "MISSED_THREAT",
+              "points": 0.0,
+              "explanation": "Hostile track reached the protected zone with no engagement decision recorded."
+            }
+          },
+          {
+            "id": "correct_hold_non_hostile",
+            "condition": {"op": "always"},
+            "leaf": {
+              "verdict": "CORRECT_HOLD",
+              "points": 1.0,
+              "explanation": "Non-hostile track was held under fire; STRICT requires hold unless positively identified as hostile."
+            }
+          }
+        ]
+      },
+      {
+        "id": "engagement_subtree",
+        "condition": {"op": "engagement"},
+        "branches": [
+          {
+            "id": "friendly_target",
+            "condition": {"op": "label_is", "value": "friendly"},
+            "leaf": {
+              "verdict": "FALSE_ENGAGE_FRIENDLY",
+              "points": -2.0,
+              "explanation": "Engaged a FRIENDLY track. Fratricide is the most heavily penalised outcome in every rule set."
+            }
+          },
+          {
+            "id": "civil_or_bird_target",
+            "condition": {"op": "label_in", "value": ["civil", "bird"]},
+            "leaf": {
+              "verdict": "FALSE_ENGAGE_CIVIL",
+              "points": -1.2,
+              "explanation": "Engaged a track whose true label is {true_label}; no authorisation exists for engaging non-hostiles."
+            }
+          },
+          {
+            "id": "collateral_sector",
+            "condition": {"op": "in_civil_sector"},
+            "leaf": {
+              "verdict": "COLLATERAL_VIOLATION",
+              "points": -2.0,
+              "explanation": "Engaged inside a declared civil sector; STRICT has zero collateral tolerance."
+            }
+          },
+          {
+            "id": "hostile_subtree",
+            "condition": {"op": "label_is", "value": "hostile"},
+            "branches": [
+              {
+                "id": "no_identification",
+                "condition": {"op": "no_identification"},
+                "leaf": {
+                  "verdict": "PREMATURE_ENGAGE",
+                  "points": -0.6,
+                  "explanation": "Engaged a hostile while the class was still UNKNOWN; STRICT requires positive ID before any engagement."
+                }
+              },
+              {
+                "id": "mislabelled_as_civil",
+                "condition": {"op": "trainee_label_is", "value": "civil"},
+                "leaf": {
+                  "verdict": "PREMATURE_ENGAGE",
+                  "points": -0.6,
+                  "explanation": "Engaged after labelling the track CIVIL; the identification and the action contradict each other."
+                }
+              },
+              {
+                "id": "late",
+                "condition": {"op": "tti_below", "value": 8.0},
+                "leaf": {
+                  "verdict": "LATE_ENGAGE",
+                  "points": 0.35,
+                  "explanation": "Engaged with less than {tti:.0f} s to the perimeter; the correct track was available earlier."
+                }
+              },
+              {
+                "id": "low_track_quality",
+                "condition": {"op": "track_quality_below", "value": 0.2},
+                "leaf": {
+                  "verdict": "LATE_ENGAGE",
+                  "points": 0.4,
+                  "explanation": "Engaged on a low-quality track; the engagement was likely to be wasted."
+                }
+              },
+              {
+                "id": "correct_engage",
+                "condition": {"op": "always"},
+                "leaf": {
+                  "verdict": "CORRECT_ENGAGE",
+                  "points": 1.0,
+                  "explanation": "Correctly identified and engaged a hostile track in accordance with STRICT rules of engagement."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

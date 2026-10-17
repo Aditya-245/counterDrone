@@ -24,6 +24,7 @@ from app.core.entities import (
     params_for,
     resolve_rf_active,
 )
+from app.core.rng import CountingRng, RngLike
 from app.core.schemas import (
     ActionType,
     DegradationState,
@@ -96,7 +97,7 @@ class TrackAnnotation:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TrackAnnotation":
+    def from_dict(cls, data: dict[str, Any]) -> TrackAnnotation:
         """Inverse of `to_dict`."""
         label = data.get("trainee_class")
         return cls(
@@ -124,6 +125,12 @@ class EngineState:
     world: WorldState
     tracker: TrackerState
     annotations: dict[str, TrackAnnotation] = field(default_factory=dict)
+    track_entities: dict[str, str] = field(default_factory=dict)
+    """Track id -> the ground-truth entity id it is currently tracking.
+
+    Written every step from the association history. `core` only: scoring, the
+    oracle and the AAR need it, the client never receives it.
+    """
     sector_attention_s: list[float] = field(default_factory=lambda: [0.0] * NUM_SECTORS)
     allow_pause: bool = False
     _sensors: list[Sensor] | None = field(default=None, repr=False, compare=False)
@@ -166,11 +173,12 @@ class EngineState:
         for tid in sorted(self.annotations):
             h.update(tid.encode("utf-8"))
             h.update(json.dumps(self.annotations[tid].to_dict(), sort_keys=True).encode("utf-8"))
+        h.update(json.dumps(self.track_entities, sort_keys=True).encode("utf-8"))
         h.update(np.asarray(self.sector_attention_s, dtype=np.float64).tobytes())
         h.update(b"1" if self.allow_pause else b"0")
         return h.hexdigest()
 
-    def clone(self) -> "EngineState":
+    def clone(self) -> EngineState:
         """Deep copy for counterfactual forks."""
         return EngineState(
             scenario=self.scenario,
@@ -179,6 +187,7 @@ class EngineState:
             annotations={
                 k: TrackAnnotation.from_dict(v.to_dict()) for k, v in self.annotations.items()
             },
+            track_entities=dict(self.track_entities),
             sector_attention_s=list(self.sector_attention_s),
             allow_pause=self.allow_pause,
         )
@@ -190,12 +199,13 @@ class EngineState:
             "world": self.world.to_dict(),
             "tracker": self.tracker.to_dict(),
             "annotations": {k: v.to_dict() for k, v in sorted(self.annotations.items())},
+            "track_entities": dict(sorted(self.track_entities.items())),
             "sector_attention_s": list(self.sector_attention_s),
             "allow_pause": self.allow_pause,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EngineState":
+    def from_dict(cls, data: dict[str, Any]) -> EngineState:
         """Inverse of `to_dict`.
 
         Deliberately goes through JSON so the round trip is the same code path a
@@ -209,7 +219,10 @@ class EngineState:
             annotations={
                 k: TrackAnnotation.from_dict(v) for k, v in payload.get("annotations", {}).items()
             },
-            sector_attention_s=[float(x) for x in payload.get("sector_attention_s", [0.0] * NUM_SECTORS)],
+            track_entities={str(k): str(v) for k, v in payload.get("track_entities", {}).items()},
+            sector_attention_s=[
+                float(x) for x in payload.get("sector_attention_s", [0.0] * NUM_SECTORS)
+            ],
             allow_pause=bool(payload.get("allow_pause", False)),
         )
 
@@ -241,7 +254,7 @@ def step(
     if state.world.status != "running":
         return state
 
-    counter = _CountingRng(rng)
+    counter = CountingRng(rng)
     nxt = state.clone()
     world = nxt.world
 
@@ -270,6 +283,7 @@ def step(
 
     _mark_first_detectable(nxt, world)
     _attribute_detections(nxt, world, detections)
+    _record_track_entities(nxt)
     _accumulate_attention(nxt, world)
 
     world.rng_draws += counter.count
@@ -279,46 +293,6 @@ def step(
         world.status = "finished"
         world.add_event(EventKind.END, "scenario complete")
     return nxt
-
-
-class _CountingRng:
-    """Thin pass-through that records how many variates the shared RNG served.
-
-    Every stochastic call inside `step` goes through this object, so
-    `WorldState.rng_draws` is a real accounting of RNG consumption and a drift
-    in that number between two runs is a determinism bug.
-    """
-
-    __slots__ = ("_rng", "count")
-
-    def __init__(self, rng: np.random.Generator) -> None:
-        self._rng = rng
-        self.count = 0
-
-    def random(self) -> float:
-        """Uniform [0, 1)."""
-        self.count += 1
-        return float(self._rng.random())
-
-    def uniform(self, low: float = 0.0, high: float = 1.0, size: int | None = None) -> Any:
-        """Uniform variates."""
-        self.count += 1
-        return self._rng.uniform(low, high, size)
-
-    def normal(self, loc: float = 0.0, scale: float = 1.0, size: Any = None) -> Any:
-        """Normal variates."""
-        self.count += 1
-        return self._rng.normal(loc, scale, size)
-
-    def poisson(self, lam: float = 1.0, size: Any = None) -> Any:
-        """Poisson variates (used by the radar clutter model)."""
-        self.count += 1
-        return self._rng.poisson(lam, size)
-
-    def integers(self, low: int, high: int | None = None, size: Any = None) -> Any:
-        """Discrete uniform integers."""
-        self.count += 1
-        return self._rng.integers(low, high, size)
 
 
 # --------------------------------------------------------------------------- #
@@ -410,7 +384,7 @@ def _stable_heading(sensor_id: str) -> float:
 
 
 def _apply_action(
-    state: EngineState, world: WorldState, action: TraineeAction, rng: np.random.Generator
+    state: EngineState, world: WorldState, action: TraineeAction, rng: RngLike
 ) -> None:
     """Apply one trainee (or oracle) action at the current tick boundary."""
     if action.t > world.t + world.dt + 1e-6:
@@ -428,13 +402,24 @@ def _apply_action(
     elif atype is ActionType.CLASSIFY and ann is not None:
         raw = action.params.get("class") or action.params.get("label")
         if raw:
-            try:
-                ann.trainee_class = LabelType(str(raw))
+            value = str(raw)
+            if value == "unknown":
+                # A deliberate "cannot identify this contact" call. There is no
+                # `unknown` ground-truth identity, so it scores exactly like an
+                # unlabelled contact (the confusion matrix's `unknown` column) -
+                # but the call is recorded, which is what makes "I looked and
+                # could not tell" different from "I never looked".
+                ann.trainee_class = None
                 ann.t_classified = world.t
-                conf = action.params.get("confidence")
-                ann.classify_confidence = float(conf) if conf is not None else None
-            except ValueError:
-                world.add_event(EventKind.SCENARIO_EVENT, f"unknown class label {raw!r}")
+                ann.classify_confidence = None
+            else:
+                try:
+                    ann.trainee_class = LabelType(value)
+                    ann.t_classified = world.t
+                    conf = action.params.get("confidence")
+                    ann.classify_confidence = float(conf) if conf is not None else None
+                except ValueError:
+                    world.add_event(EventKind.SCENARIO_EVENT, f"unknown class label {raw!r}")
     elif atype is ActionType.SET_PRIORITY and ann is not None:
         try:
             ann.priority = int(action.params.get("priority", 1))
@@ -447,9 +432,7 @@ def _apply_action(
         if run is not None:
             run.azimuth_deg = float(action.params.get("az", run.azimuth_deg)) % 360.0
             if run.spec.fov_deg < 359.9:
-                run.azimuth_deg = float(
-                    np.clip(run.azimuth_deg, 0.0, 360.0 - run.spec.fov_deg)
-                )
+                run.azimuth_deg = float(np.clip(run.azimuth_deg, 0.0, 360.0 - run.spec.fov_deg))
         sector = sector_of_bearing(float(action.params.get("az", 0.0)))
         state.sector_attention_s[sector] += world.dt * 1.0
     elif atype is ActionType.WARN and ann is not None:
@@ -512,9 +495,13 @@ def engagement_success_probability(
         base = spec.base_success
     else:
         sus = 1.0
-        speed_term = float(np.clip(1.0 - (target.speed_mps - params.max_speed_mps * 0.5) / 25.0, 0.15, 1.0))
+        speed_term = float(
+            np.clip(1.0 - (target.speed_mps - params.max_speed_mps * 0.5) / 25.0, 0.15, 1.0)
+        )
         base = spec.base_success * 0.85
-    return float(np.clip(base * range_term * quality_term * speed_term * (0.5 + 0.5 * sus), 0.0, 0.99))
+    return float(
+        np.clip(base * range_term * quality_term * speed_term * (0.5 + 0.5 * sus), 0.0, 0.99)
+    )
 
 
 def _resolve_engagement(
@@ -522,7 +509,7 @@ def _resolve_engagement(
     world: WorldState,
     action: TraineeAction,
     track_id: str | None,
-    rng: np.random.Generator,
+    rng: RngLike,
 ) -> None:
     """Execute an engagement action: check readiness, roll success, update state."""
     eff_id = action.effector_id() or ""
@@ -616,9 +603,7 @@ def _resolve_engagement(
         runtime.reload_remaining = spec.reload_s
 
     quality = trk.quality if trk is not None else 0.2
-    prob = engagement_success_probability(
-        state.scenario, world, eff_id, target, range_m, quality
-    )
+    prob = engagement_success_probability(state.scenario, world, eff_id, target, range_m, quality)
     success = bool(float(rng.random()) < prob)
     runtime.ammo -= 1
     runtime.shots_fired += 1
@@ -680,7 +665,7 @@ def _advance_cooldowns(world: WorldState) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _spawn_due_waves(state: EngineState, world: WorldState, rng: np.random.Generator) -> None:
+def _spawn_due_waves(state: EngineState, world: WorldState, rng: RngLike) -> None:
     """Spawn any wave whose window has opened and that has not spawned yet."""
     for wave in state.scenario.all_waves:
         if wave.name in world.spawned_waves:
@@ -691,30 +676,30 @@ def _spawn_due_waves(state: EngineState, world: WorldState, rng: np.random.Gener
         world.spawned_waves.add(wave.name)
 
 
-def _spawn_wave(
-    state: EngineState, world: WorldState, wave: ThreatSpec, rng: np.random.Generator
-) -> None:
+def _spawn_wave(state: EngineState, world: WorldState, wave: ThreatSpec, rng: RngLike) -> None:
     """Instantiate every member of `wave` at its scheduled spawn point."""
-    site = state.scenario.site
     count = max(1, wave.count)
     spacing = max(45.0, 18.0 * math.sqrt(count))
     offsets = formation_offsets(wave.formation, count, spacing)
     rf_default = resolve_rf_active(wave)
     for i in range(wave.count):
-        jitter_t = 0.0
-        if wave.spawn_window_s > 0.0:
-            jitter_t = float(rng.uniform(0.0, wave.spawn_window_s))
-        t_spawn = wave.spawn_t + jitter_t
+        # Members of a wave are inserted together at the current tick; the
+        # per-member jitter varies the spawn geometry instead of the spawn time,
+        # so `spawn_t` always matches reality.
+        rng_jitter = float(rng.uniform(-1.0, 1.0))
         bearing = wave.spawn_bearing_deg
         if wave.spawn_jitter_deg > 0.0:
-            bearing = (bearing + float(rng.uniform(-wave.spawn_jitter_deg, wave.spawn_jitter_deg))) % 360.0
+            bearing = (
+                bearing + float(rng.uniform(-wave.spawn_jitter_deg, wave.spawn_jitter_deg))
+            ) % 360.0
         if wave.spawn_points and i < len(wave.spawn_points):
             bp = wave.spawn_points[i]
             bearing = bp.bearing_deg
             slant = bp.range_m
             alt = bp.altitude_m
         else:
-            slant = float(rng.uniform(2200.0, 4600.0))
+            spread = 0.0 if wave.spawn_window_s <= 0.0 else wave.spawn_window_s
+            slant = float(rng.uniform(2200.0, 4600.0)) + rng_jitter * spread * 4.0
             alt = float(rng.uniform(90.0, 380.0))
         radius = slant
         off = offsets[i]
@@ -742,9 +727,11 @@ def _spawn_wave(
                 y=-math.sin(th) * params_for(wave.entity_class).loiter_speed_mps,
                 z=0.0,
             ),
-            spawn_t=t_spawn,
+            spawn_t=float(world.t),
             rf_active=rf_default if wave.rf_active is None else bool(wave.rf_active),
-            beacon_active=bool(wave.beacon_active) if wave.beacon_active is not None else (wave.label is LabelType.FRIENDLY),
+            beacon_active=bool(wave.beacon_active)
+            if wave.beacon_active is not None
+            else (wave.label is LabelType.FRIENDLY),
             hint_bias=float(wave.hint_bias),
         )
         world.entities[ent_id] = ent
@@ -767,7 +754,7 @@ def _slug(name: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _integrate_entities(state: EngineState, world: WorldState, rng: np.random.Generator) -> None:
+def _integrate_entities(state: EngineState, world: WorldState, rng: RngLike) -> None:
     """Advance every active entity one timestep using its behaviour.
 
     Entity-local randomness comes from `entity_rng(world.seed, entity_id)` so it
@@ -859,7 +846,7 @@ def _update_entity_bookkeeping(state: EngineState, world: WorldState) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _observe(state: EngineState, world: WorldState, rng: np.random.Generator) -> list[Detection]:
+def _observe(state: EngineState, world: WorldState, rng: RngLike) -> list[Detection]:
     """Run every operational sensor once and concatenate their detections."""
     out: list[Detection] = []
     for sensor in state.sensors:
@@ -889,6 +876,21 @@ def _attribute_detections(
         if ent.t_first_detection is None:
             ent.t_first_detection = world.t
             ent.first_detected_by = det.sensor_id
+
+
+def _record_track_entities(state: EngineState) -> None:
+    """Remember which ground-truth entity each confirmed track is following.
+
+    First association wins, and only confirmed tracks are recorded: a plot that
+    was later stolen by a real object must not retroactively attribute an
+    earlier acknowledgement to that object. Never sent to the client.
+    """
+    for tid, trk in state.tracker.tracks.items():
+        if not trk.confirmed or tid in state.track_entities:
+            continue
+        hint = trk.entity_hint()
+        if hint:
+            state.track_entities[tid] = hint
 
 
 def _accumulate_attention(state: EngineState, world: WorldState) -> None:

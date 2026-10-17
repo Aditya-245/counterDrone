@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from app.core.schemas import EntityClass, LabelType
 
@@ -52,7 +53,7 @@ class Detection:
     strength: float = 1.0
     hint_bias: float = 0.0
 
-    def as_measurement(self) -> np.ndarray:
+    def as_measurement(self) -> NDArray[np.float64]:
         """Position measurement vector."""
         return np.array([self.x, self.y, self.z], dtype=np.float64)
 
@@ -65,48 +66,47 @@ class KalmanFilter:
     def __init__(self, dt: float, process_noise: float = 1.2) -> None:
         self.dt = float(dt)
         self._q_scale = float(process_noise)
-        self.x = np.zeros(6, dtype=np.float64)
-        self.P = np.diag([400.0, 400.0, 400.0, 64.0, 64.0, 64.0])
+        self.x: NDArray[np.float64] = np.zeros(6, dtype=np.float64)
+        self.P: NDArray[np.float64] = np.diag([400.0, 400.0, 400.0, 64.0, 64.0, 64.0])
 
     # ------------------------------------------------------------------ #
-    def transition(self) -> np.ndarray:
+    def transition(self) -> NDArray[np.float64]:
         """State transition matrix for the configured `dt`."""
-        f = np.eye(6, dtype=np.float64)
+        f: NDArray[np.float64] = np.eye(6, dtype=np.float64)
         f[0, 3] = self.dt
         f[1, 4] = self.dt
         f[2, 5] = self.dt
         return f
 
-    def process_covariance(self) -> np.ndarray:
+    def process_covariance(self) -> NDArray[np.float64]:
         """Discrete white-noise-acceleration process covariance."""
         dt = self.dt
         q = self._q_scale
         dt2, dt3, dt4 = dt * dt, dt**3, dt**4
-        block = (
-            np.array(
-                [
-                    [dt4 / 4.0, 0.0, 0.0, dt3 / 2.0, 0.0, 0.0],
-                    [0.0, dt4 / 4.0, 0.0, 0.0, dt3 / 2.0, 0.0],
-                    [0.0, 0.0, dt4 / 4.0, 0.0, 0.0, dt3 / 2.0],
-                    [dt3 / 2.0, 0.0, 0.0, dt2, 0.0, 0.0],
-                    [0.0, dt3 / 2.0, 0.0, 0.0, dt2, 0.0],
-                    [0.0, 0.0, dt3 / 2.0, 0.0, 0.0, dt2],
-                ]
-            )
-            * q
+        out = np.array(
+            [
+                [dt4 / 4.0, 0.0, 0.0, dt3 / 2.0, 0.0, 0.0],
+                [0.0, dt4 / 4.0, 0.0, 0.0, dt3 / 2.0, 0.0],
+                [0.0, 0.0, dt4 / 4.0, 0.0, 0.0, dt3 / 2.0],
+                [dt3 / 2.0, 0.0, 0.0, dt2, 0.0, 0.0],
+                [0.0, dt3 / 2.0, 0.0, 0.0, dt2, 0.0],
+                [0.0, 0.0, dt3 / 2.0, 0.0, 0.0, dt2],
+            ],
+            dtype=np.float64,
         )
-        return block
+        out *= q
+        return out
 
-    def predict(self, accel_hint: np.ndarray | None = None) -> np.ndarray:
+    def predict(self, accel_hint: NDArray[np.float64] | None = None) -> NDArray[np.float64]:
         """Propagate the state one `dt` and return the predicted measurement."""
         f = self.transition()
-        self.x = f @ self.x
-        self.P = f @ self.P @ f.T + self.process_covariance()
+        self.x = np.asarray(f @ self.x, dtype=np.float64)
+        self.P = np.asarray(f @ self.P @ f.T + self.process_covariance(), dtype=np.float64)
         if accel_hint is not None:
             self.x[:3] += 0.5 * self.dt * self.dt * accel_hint
         return self.x[:3].copy()
 
-    def update_position(self, z: np.ndarray, r: np.ndarray) -> None:
+    def update_position(self, z: NDArray[np.float64], r: NDArray[np.float64]) -> None:
         """Fuse a 3-D position measurement."""
         h = np.zeros((3, 6), dtype=np.float64)
         h[0, 0] = h[1, 1] = h[2, 2] = 1.0
@@ -116,10 +116,10 @@ class KalmanFilter:
             k = self.P @ h.T @ np.linalg.inv(s)
         except np.linalg.LinAlgError:  # pragma: no cover - r is PD by construction
             return
-        self.x = self.x + k @ y
+        self.x = np.asarray(self.x + k @ y, dtype=np.float64)
         ident = np.eye(6, dtype=np.float64)
-        self.P = (ident - k @ h) @ self.P
-        self.P = 0.5 * (self.P + self.P.T)
+        self.P = np.asarray((ident - k @ h) @ self.P, dtype=np.float64)
+        self.P = np.asarray(0.5 * (self.P + self.P.T), dtype=np.float64)
 
     def update_radial_rate(self, rate: float, sigma: float) -> None:
         """Fuse a scalar range-rate measurement along the current line of sight."""
@@ -135,19 +135,19 @@ class KalmanFilter:
         if s <= 1e-9:
             return
         k = (self.P @ h.T) / s
-        self.x = self.x + (k.flatten() * innovation)
+        self.x = np.asarray(self.x + (k.flatten() * innovation), dtype=np.float64)
         ident = np.eye(6, dtype=np.float64)
-        self.P = (ident - k @ h) @ self.P
-        self.P = 0.5 * (self.P + self.P.T)
+        self.P = np.asarray((ident - k @ h) @ self.P, dtype=np.float64)
+        self.P = np.asarray(0.5 * (self.P + self.P.T), dtype=np.float64)
 
     # ------------------------------------------------------------------ #
     @property
-    def position(self) -> np.ndarray:
+    def position(self) -> NDArray[np.float64]:
         """Estimated position."""
         return self.x[:3].copy()
 
     @property
-    def velocity(self) -> np.ndarray:
+    def velocity(self) -> NDArray[np.float64]:
         """Estimated velocity."""
         return self.x[3:].copy()
 
@@ -161,7 +161,7 @@ class KalmanFilter:
         """Root-mean-square velocity error (m/s)."""
         return float(math.sqrt(max(1e-6, np.trace(self.P[3:, 3:]) / 3.0)))
 
-    def position_covariance(self) -> np.ndarray:
+    def position_covariance(self) -> NDArray[np.float64]:
         """3x3 position covariance block (for the UI ellipse)."""
         return self.P[:3, :3].copy()
 
@@ -234,15 +234,17 @@ class Track:
         diversity = min(1.0, len(self.sensors) / 3.0)
         recency = math.exp(-self.misses / 6.0)
         precision = math.exp(-self.kf.position_sigma / 320.0)
-        return float(np.clip(0.35 * conf + 0.2 * diversity + 0.2 * recency + 0.25 * precision, 0, 1))
+        return float(
+            np.clip(0.35 * conf + 0.2 * diversity + 0.2 * recency + 0.25 * precision, 0, 1)
+        )
 
     @property
-    def position(self) -> np.ndarray:
+    def position(self) -> NDArray[np.float64]:
         """Estimated position."""
         return self.kf.position
 
     @property
-    def velocity(self) -> np.ndarray:
+    def velocity(self) -> NDArray[np.float64]:
         """Estimated velocity."""
         return self.kf.velocity
 
@@ -276,10 +278,24 @@ class Track:
         return max(skewed.items(), key=lambda kv: (kv[1], kv[0].value))[0]
 
     def entity_hint(self) -> str | None:
-        """Most frequently associated ground-truth id. `core` internal only."""
+        """Most frequently associated ground-truth id. `core` internal only.
+
+        Ties break on the smallest id. This has to be explicit: `set` iteration
+        order depends on the process hash seed, and the hint feeds a *decision*
+        (the oracle's notion of which entity a track is), so a hash-ordered
+        tie-break makes the same scenario seed score differently from one run to
+        the next. A track that breaks and re-forms across several entities is
+        exactly the case that hits the tie.
+        """
         if not self.entity_ids:
             return None
-        return max(set(self.entity_ids), key=self.entity_ids.count)
+        counts: dict[str, int] = {}
+        for eid in self.entity_ids:
+            if eid:
+                counts[eid] = counts.get(eid, 0) + 1
+        if not counts:
+            return None
+        return min(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise."""
@@ -304,8 +320,9 @@ class Track:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], config: TrackerConfig) -> "Track":
+    def from_dict(cls, data: dict[str, Any], config: TrackerConfig) -> Track:
         """Inverse of `to_dict`."""
+        del config  # a restored track carries its own filter state
         kf = KalmanFilter(float(data["kf"]["dt"]), float(data["kf"].get("q", 1.2)))
         kf.load_dict(data["kf"])
         return cls(
@@ -350,7 +367,7 @@ class TrackerState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], config: TrackerConfig) -> "TrackerState":
+    def from_dict(cls, data: dict[str, Any], config: TrackerConfig) -> TrackerState:
         """Inverse of `to_dict`."""
         state = cls(next_id=int(data["next_id"]))
         for item in data.get("tracks", []):
@@ -433,14 +450,14 @@ class TrackTracker:
                         if sid not in older.sensors:
                             older.sensors.append(sid)
                     for eid in younger.entity_ids:
-                        if eid not in older.entity_ids:
+                        if eid and eid not in older.entity_ids:
                             older.entity_ids.append(eid)
                     del self.state.tracks[younger.id]
                     self.state.deleted.append(younger.id)
                     limit = d + 1e-6
         self._drop_fragments(confirmed)
 
-    def _drop_fragments(self, confirmed: list["Track"]) -> None:
+    def _drop_fragments(self, confirmed: list[Track]) -> None:
         """Discard tentative tracks sitting on top of a confirmed track.
 
         These are measurement fragments of an object the tracker already holds;
@@ -528,7 +545,9 @@ class TrackTracker:
         base = self.config.base_range_sigma_m
         sigma = base * (1.0 + det.range_m / 2500.0) / max(0.2, det.strength)
         sigma = float(np.clip(sigma, 4.0, 400.0))
-        trk.kf.update_position(det.as_measurement(), np.eye(3) * sigma * sigma)
+        trk.kf.update_position(
+            det.as_measurement(), np.asarray(np.eye(3) * sigma * sigma, dtype=np.float64)
+        )
         if det.has_range_rate:
             trk.kf.update_radial_rate(det.radial_mps, det.speed_sigma_mps)
             trk.radial_mps = det.radial_mps
@@ -539,14 +558,18 @@ class TrackTracker:
         trk.last_bearing_deg = det.bearing_deg
         if det.sensor_id not in trk.sensors:
             trk.sensors.append(det.sensor_id)
-        if det.entity_id not in trk.entity_ids:
+        # A detection with no entity id is a clutter return. Recording the empty
+        # string here would let it *tie* with the real entity in `entity_hint`,
+        # and the hint is what resolves an engagement onto a target - so a
+        # single clutter return could make every shot on the track miss.
+        if det.entity_id and det.entity_id not in trk.entity_ids:
             trk.entity_ids.append(det.entity_id)
         if det.hint_bias > trk.hint_bias:
             trk.hint_bias = det.hint_bias
-        for k, v in det.class_evidence.items():
-            trk.class_evidence[k] = trk.class_evidence.get(k, 0.0) + v
-        for k, v in det.label_evidence.items():
-            trk.label_evidence[k] = trk.label_evidence.get(k, 0.0) + v
+        for cls, weight in det.class_evidence.items():
+            trk.class_evidence[cls] = trk.class_evidence.get(cls, 0.0) + weight
+        for lab, weight in det.label_evidence.items():
+            trk.label_evidence[lab] = trk.label_evidence.get(lab, 0.0) + weight
         trk.recent_hits.append(1)
         if len(trk.recent_hits) > self.config.init_n:
             trk.recent_hits = trk.recent_hits[-self.config.init_n :]

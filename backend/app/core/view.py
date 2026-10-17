@@ -26,9 +26,7 @@ from app.core.tracking import Track
 __all__ = ["build_state_frame", "sector_of_track", "track_view"]
 
 
-def track_view(
-    state: EngineState, trk: Track, ann: TrackAnnotation | None
-) -> TrackView:
+def track_view(state: EngineState, trk: Track, ann: TrackAnnotation | None) -> TrackView:
     """Project one track into the client-facing view (no ground truth)."""
     p = trk.position
     v = trk.velocity
@@ -126,7 +124,7 @@ def build_state_frame(
         t=round(world.t, 3),
         step=world.step,
         duration_s=world.duration_s,
-        status=world.status if world.status in ("running", "paused", "finished") else "running",
+        status=world.status,
         tracks=tracks,
         sensors=sensors,
         effectors=effectors,

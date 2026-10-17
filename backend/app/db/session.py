@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event
@@ -17,7 +17,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.db.models import Base
 
-_settings = get_settings()
+# NOTE: settings are resolved lazily inside `get_engine()` rather than cached at
+# import time, so tests can point the app at a throwaway database by clearing the
+# settings cache and calling `reset_engine()`.
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None
@@ -38,7 +40,7 @@ def get_engine() -> Engine:
     global _engine
     if _engine is None:
         _engine = create_engine(
-            _settings.db_url,
+            get_settings().db_url,
             future=True,
             connect_args={"check_same_thread": False},
         )
@@ -55,9 +57,53 @@ def get_session_factory() -> sessionmaker[Session]:
 
 
 def init_db() -> None:
-    """Create the data directory and all tables (idempotent)."""
-    Path(_settings.db_path).parent.mkdir(parents=True, exist_ok=True)
+    """Create the data directory and all tables (idempotent).
+
+    Two schema paths are supported and they must never fight:
+
+    * **Alembic** (`make migrate`) is the way an existing database evolves.
+    * **`create_all`** is the zero-setup path used by the tests, by `make seed`
+      on a fresh checkout, and by the container-less demo.
+
+    Whichever one builds the schema first stamps the Alembic revision table, so
+    a later `make migrate` sees the database as already-current instead of
+    trying to re-create tables that are already there (DECISIONS D020).
+    """
+    Path(get_settings().db_path).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(get_engine())
+    _stamp_alembic_head()
+
+
+def _stamp_alembic_head() -> None:
+    """Record the current Alembic revision if the DB has no version marker.
+
+    Uses Alembic's own `stamp`, which creates the `alembic_version` table when
+    it is missing. Any failure is swallowed: the database is perfectly usable
+    without a revision marker, and a broken ini file must not stop the app.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    cfg_path = Path(__file__).resolve().parents[2] / "alembic.ini"
+    if not cfg_path.exists():
+        return
+    cfg = Config(str(cfg_path))
+    cfg.set_main_option("sqlalchemy.url", get_settings().db_url)
+    with suppress(Exception):  # pragma: no cover - alembic is optional at runtime
+        command.stamp(cfg, "head")
+
+
+def alembic_heads() -> list[str]:
+    """Revision ids currently at the head of the migration chain on disk."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    cfg_path = Path(__file__).resolve().parents[2] / "alembic.ini"
+    if not cfg_path.exists():
+        return []
+    cfg = Config(str(cfg_path))
+    cfg.set_main_option("sqlalchemy.url", get_settings().db_url)
+    return list(ScriptDirectory.from_config(cfg).get_heads())
 
 
 @contextmanager
@@ -88,7 +134,7 @@ def drop_db() -> None:
         _engine.dispose()
         _engine = None
     _SessionLocal = None
-    base = Path(_settings.db_path)
+    base = Path(get_settings().db_path)
     for suffix in ("", "-wal", "-shm", "-journal"):
         candidate = Path(f"{base}{suffix}")
         if candidate.exists():

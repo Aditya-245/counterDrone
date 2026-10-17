@@ -7,10 +7,12 @@ engine at a fixed 10 Hz, broadcasts ``state_frame`` messages over
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,11 +28,12 @@ _settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialise storage and optional subsystems on startup."""
+    """Initialise storage, start the simulation clock, and shut down cleanly."""
+    from app.clock import run_session_clock
     from app.db.session import init_db
 
     init_db()
-    logger.info("SKYGYM started; database at %s", _settings.db_url)
+    logger.info("SKYGYM started; database at %s", get_settings().db_url)
 
     from app.core.redbrain import describe_policy_availability
 
@@ -38,7 +41,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Red Brain Layer B learned policy: %s", state)
     app.state.redbrain_policy = state
 
-    yield
+    clock = asyncio.create_task(run_session_clock())
+    app.state.clock_task = clock
+    try:
+        yield
+    finally:
+        clock.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await clock
 
 
 def create_app() -> FastAPI:
@@ -61,42 +71,35 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Routers are imported lazily inside create_app so that a bare `app.main`
-    # import never touches the database (useful for pure-core unit tests).
-    from app.api.health import router as health_router
+    from app.middleware import install_schema_version_gate
 
-    app.include_router(health_router)
+    install_schema_version_gate(app)
 
-    try:  # pragma: no cover - import guard for partial builds
-        from app.api.analytics import router as analytics_router
-        from app.api.aar import router as aar_router
-        from app.api.builder import router as builder_router
-        from app.api.instructor import router as instructor_router
-        from app.api.scenarios import router as scenarios_router
-        from app.api.sessions import router as sessions_router
-        from app.api.users import router as users_router
+    # Each router is imported independently: a missing optional module must not
+    # take the required ones (notably the realtime socket) down with it.
+    optional = {
+        "app.api.health": "health",
+        "app.api.analytics": "analytics",
+        "app.api.aar": "aar",
+        "app.api.builder": "builder",
+        "app.api.instructor": "instructor",
+        "app.api.scenarios": "scenarios",
+        "app.api.sessions": "sessions",
+        "app.api.users": "users",
+        "app.api.realtime": "realtime",
+        "app.api.teams": "teams",
+    }
+    import importlib
 
-        for r in (
-            scenarios_router,
-            sessions_router,
-            aar_router,
-            analytics_router,
-            users_router,
-            builder_router,
-            instructor_router,
-        ):
-            app.include_router(r)
-    except ImportError as exc:  # pragma: no cover
-        logger.warning("API routers unavailable at startup: %s", exc)
-
-    try:  # pragma: no cover - optional routers
-        from app.api.teams import router as teams_router
-        from app.api.realtime import router as realtime_router
-
-        app.include_router(realtime_router)
-        app.include_router(teams_router)
-    except ImportError as exc:
-        logger.info("Optional realtime/team routers not loaded: %s", exc)
+    for module_path in optional:
+        try:
+            module = importlib.import_module(module_path)
+        except ImportError as exc:  # pragma: no cover - partial build
+            logger.warning("router %s unavailable: %s", module_path, exc)
+            continue
+        router = getattr(module, "router", None)
+        if router is not None:
+            app.include_router(router)
 
     _mount_frontend(app)
     return app

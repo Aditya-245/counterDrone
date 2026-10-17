@@ -104,10 +104,7 @@ class Terrain:
         """True if an abstract building box intersects the segment p0->p1 in plan."""
         if not self.buildings:
             return False
-        for b in self.buildings:
-            if _segment_intersects_rect(p0, p1, b):
-                return True
-        return False
+        return any(_segment_intersects_rect(p0, p1, b) for b in self.buildings)
 
     def line_of_sight(self, p0: Vec3, p1: Vec3, ignore_terrain: bool = False) -> bool:
         """Conservative visibility test from p0 to p1.
@@ -119,12 +116,15 @@ class Terrain:
         if self.building_blocks_line(p0, p1):
             # A building only blocks if it is tall enough to reach the ray.
             for b in self.buildings:
-                if _segment_intersects_rect(p0, p1, b):
-                    f = _segment_rect_param(p0, p1, b)
-                    ray_z = p0.z + (p1.z - p0.z) * f
-                    base = self.height_at(b.x, b.y)
-                    if base + b.height_m > ray_z:
-                        return False
+                if not _segment_intersects_rect(p0, p1, b):
+                    continue
+                f = _segment_rect_param(p0, p1, b)
+                if f is None:
+                    continue
+                ray_z = p0.z + (p1.z - p0.z) * f
+                base = self.height_at(b.x, b.y)
+                if base + b.height_m > ray_z:
+                    return False
         return True
 
     def occlusion_fraction(self, p0: Vec3, p1: Vec3, samples: int = 48) -> float:
@@ -316,8 +316,7 @@ def _flatten_site(
     # heights is stored as [ix, iy] = [x, y]
     r = np.sqrt(gx**2 + gy**2)
     w = np.clip((r - radius_m) / blend_m, 0.0, 1.0)
-    out = out * w
-    return out
+    return out * w
 
 
 def _load_heightmap(path: Path, resolution: int, max_height_m: float) -> np.ndarray:
@@ -328,7 +327,7 @@ def _load_heightmap(path: Path, resolution: int, max_height_m: float) -> np.ndar
         raise RuntimeError("Pillow is required for heightmap import") from exc
 
     with Image.open(path) as img:
-        grey = img.convert("L").resize((resolution, resolution), Image.BILINEAR)
+        grey = img.convert("L").resize((resolution, resolution), Image.Resampling.BILINEAR)
         data = np.asarray(grey, dtype=np.float64) / 255.0
     return data * max_height_m
 

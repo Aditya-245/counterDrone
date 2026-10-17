@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from enum import Enum
-from typing import Annotated, Any, ClassVar, Literal, Self
+from typing import Annotated, Any, ClassVar, Literal, Self, cast
 
 from pydantic import (
     BaseModel,
@@ -261,7 +261,7 @@ class TerrainSpec(VersionedModel):
     max_height_m: float | None = Field(
         default=None, description="Override for imported heightmaps (0..255 -> 0..max)."
     )
-    buildings: list["BuildingSpec"] = Field(default_factory=list)
+    buildings: list[BuildingSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_heightmap(self) -> Self:
@@ -284,7 +284,9 @@ class EnvSpec(VersionedModel):
     """Atmospheric / lighting environment."""
 
     time_of_day: TimeOfDay = TimeOfDay.DAY
-    visibility_m: float = Field(default=8000.0, ge=50.0, le=20000.0, description="Meteorological range.")
+    visibility_m: float = Field(
+        default=8000.0, ge=50.0, le=20000.0, description="Meteorological range."
+    )
     rain: float = Field(default=0.0, ge=0.0, le=1.0)
     wind_speed_mps: float = Field(default=2.0, ge=0.0, le=35.0)
     wind_heading_deg: float = Field(default=270.0, ge=0.0, le=360.0)
@@ -386,7 +388,8 @@ class BehaviourSpec(VersionedModel):
     cohesion_weight: float = Field(default=0.35, ge=0.0, le=2.0)
     alignment_weight: float = Field(default=0.25, ge=0.0, le=2.0)
     terrain_following: bool = Field(
-        default=False, description="Hold a clearance above local ground instead of a fixed altitude."
+        default=False,
+        description="Hold a clearance above local ground instead of a fixed altitude.",
     )
     min_clearance_m: float = Field(default=18.0, ge=2.0, le=400.0)
 
@@ -555,27 +558,27 @@ class DifficultyVector(VersionedModel):
         return [float(getattr(self, name)) for name in self.AXES]
 
     @classmethod
-    def from_array(cls, values: list[float]) -> "DifficultyVector":
+    def from_array(cls, values: list[float]) -> DifficultyVector:
         """Build a vector from a 10-element array (inverse of `to_array`)."""
         if len(values) != len(cls.AXES):
             raise ValueError(f"expected {len(cls.AXES)} difficulty values, got {len(values)}")
         data = {name: float(v) for name, v in zip(cls.AXES, values, strict=True)}
-        return cls(**data)
+        return cls(**cast("dict[str, Any]", data))
 
     @property
     def mean(self) -> float:
         """Unweighted mean of all axes, used as a coarse difficulty scalar."""
         return sum(self.to_array()) / len(self.AXES)
 
-    def with_axis(self, axis: str, value: float) -> "DifficultyVector":
+    def with_axis(self, axis: str, value: float) -> DifficultyVector:
         """Return a copy with one axis replaced (validated)."""
         if axis not in self.AXES:
             raise ValueError(f"unknown difficulty axis {axis!r}")
         data = {name: float(getattr(self, name)) for name in self.AXES}
         data[axis] = max(0.0, min(1.0, float(value)))
-        return DifficultyVector(**data)
+        return DifficultyVector(**cast("dict[str, Any]", data))
 
-    def resolve(self) -> "ResolvedDifficulty":
+    def resolve(self) -> ResolvedDifficulty:
         """Map normalised axes onto concrete scenario magnitudes."""
         from app.core.generator_support import resolve_difficulty
 
@@ -923,11 +926,13 @@ class SkillVector(VersionedModel):
         return [float(getattr(self, n)) for n in self.NAMES]
 
     @classmethod
-    def from_array(cls, values: list[float]) -> "SkillVector":
+    def from_array(cls, values: list[float]) -> SkillVector:
         """Inverse of `to_array`."""
         if len(values) != 5:
             raise ValueError("expected exactly five skill values")
-        return cls(**dict(zip(cls.NAMES, (float(v) for v in values), strict=True)))
+        return cls(
+            **cast("dict[str, Any]", dict(zip(cls.NAMES, (float(v) for v in values), strict=True)))
+        )
 
     @property
     def weakest(self) -> str:
@@ -1085,6 +1090,14 @@ class ForkRequest(VersionedModel):
     inject_action: TraineeAction | None = None
     replace_all_from: bool = Field(
         default=True, description="Drop every trainee action at or after fork_t."
+    )
+    follow_with_ghost: bool = Field(
+        default=True,
+        description=(
+            "Let the counterfactual oracle take over at fork_t and append its "
+            "actions to the fork log (the default counterfactual). Set false to "
+            "re-simulate the trainee's own log unchanged."
+        ),
     )
 
 

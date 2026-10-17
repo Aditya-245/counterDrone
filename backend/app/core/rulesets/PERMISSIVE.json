@@ -1,0 +1,101 @@
+{
+  "id": "PERMISSIVE",
+  "title": "PERMISSIVE - early warning, minimal positive-identification requirement",
+  "description": "Used for warm-up and for forces operating under a short-warning posture. Hostiles may be engaged on assessment alone. Fratricide and deliberate engagements over declared civil sectors remain violations.",
+  "defaults": {
+    "require_id_before_engage": false,
+    "allowed_engage_labels": ["hostile", "civil"],
+    "friend_or_civil_warning_required": false,
+    "collateral_sector_tolerance": 0.5,
+    "late_engage_threshold_s": 12.0,
+    "min_track_quality": 0.08,
+    "require_warning_before_engage": false
+  },
+  "tree": {
+    "id": "root",
+    "condition": {"op": "always"},
+    "branches": [
+      {
+        "id": "no_engagement",
+        "condition": {"op": "no_engagement"},
+        "branches": [
+          {
+            "id": "missed_hostile",
+            "condition": {"op": "label_is", "value": "hostile"},
+            "leaf": {
+              "verdict": "MISSED_THREAT",
+              "points": 0.0,
+              "explanation": "Hostile track reached the protected zone with no engagement decision recorded."
+            }
+          },
+          {
+            "id": "correct_hold_non_hostile",
+            "condition": {"op": "always"},
+            "leaf": {
+              "verdict": "CORRECT_HOLD",
+              "points": 1.0,
+              "explanation": "Non-hostile track was held; no authorisation to engage existed."
+            }
+          }
+        ]
+      },
+      {
+        "id": "engagement_subtree",
+        "condition": {"op": "engagement"},
+        "branches": [
+          {
+            "id": "friendly_target",
+            "condition": {"op": "label_is", "value": "friendly"},
+            "leaf": {
+              "verdict": "FALSE_ENGAGE_FRIENDLY",
+              "points": -2.0,
+              "explanation": "Engaged a FRIENDLY track. Fratricide is never authorised."
+            }
+          },
+          {
+            "id": "civil_target",
+            "condition": {"op": "label_in", "value": ["civil", "bird"]},
+            "leaf": {
+              "verdict": "FALSE_ENGAGE_CIVIL",
+              "points": -1.0,
+              "explanation": "Engaged a non-hostile track whose true label is {true_label}."
+            }
+          },
+          {
+            "id": "hostile_subtree",
+            "condition": {"op": "label_is", "value": "hostile"},
+            "branches": [
+              {
+                "id": "collateral",
+                "condition": {"op": "in_civil_sector_strict"},
+                "leaf": {
+                  "verdict": "COLLATERAL_VIOLATION",
+                  "points": -2.0,
+                  "explanation": "Engaged inside a declared civil sector beyond the tolerated wedge."
+                }
+              },
+              {
+                "id": "late",
+                "condition": {"op": "tti_below", "value": 4.0},
+                "leaf": {
+                  "verdict": "LATE_ENGAGE",
+                  "points": 0.3,
+                  "explanation": "Engaged with less than {tti:.0f} s to the perimeter."
+                }
+              },
+              {
+                "id": "correct_engage",
+                "condition": {"op": "always"},
+                "leaf": {
+                  "verdict": "CORRECT_ENGAGE",
+                  "points": 1.0,
+                  "explanation": "Hostile engaged under PERMISSIVE rules; the posture allows engagement on assessment."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

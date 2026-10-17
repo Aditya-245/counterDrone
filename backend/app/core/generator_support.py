@@ -119,7 +119,7 @@ def difficulty_for_success(
     """
     k, theta = _SKILL_CURVES[skill]
     lo, hi = 0.0, 1.0
-    target_logit = math.log(target_p / (1.0 - target_p))
+    # Bisect on `p(difficulty) - target_p`; 60 steps is far past double precision.
     for _ in range(60):
         mid = (lo + hi) / 2.0
         z = k * (float(skill_rating) - theta) - 3.2 * mid

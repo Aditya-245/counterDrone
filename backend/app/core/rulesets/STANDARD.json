@@ -1,0 +1,128 @@
+{
+  "id": "STANDARD",
+  "title": "STANDARD - warn, then engage on a hostile assessment",
+  "description": "The default training rule set. A warning is required before engaging. Hostiles may be engaged on a hostile assessment rather than a full positive identification, but anything over a declared civil sector, or any friendly, is still a violation.",
+  "defaults": {
+    "require_id_before_engage": false,
+    "allowed_engage_labels": ["hostile", "civil"],
+    "friend_or_civil_warning_required": true,
+    "collateral_sector_tolerance": 0.25,
+    "late_engage_threshold_s": 20.0,
+    "min_track_quality": 0.15,
+    "require_warning_before_engage": true
+  },
+  "tree": {
+    "id": "root",
+    "condition": {"op": "always"},
+    "branches": [
+      {
+        "id": "no_engagement",
+        "condition": {"op": "no_engagement"},
+        "branches": [
+          {
+            "id": "missed_hostile",
+            "condition": {"op": "label_is", "value": "hostile"},
+            "leaf": {
+              "verdict": "MISSED_THREAT",
+              "points": 0.0,
+              "explanation": "Hostile track reached the protected zone with no engagement decision recorded."
+            }
+          },
+          {
+            "id": "correct_hold_non_hostile",
+            "condition": {"op": "always"},
+            "leaf": {
+              "verdict": "CORRECT_HOLD",
+              "points": 1.0,
+              "explanation": "Non-hostile track was held; no authorisation to engage existed."
+            }
+          }
+        ]
+      },
+      {
+        "id": "engagement_subtree",
+        "condition": {"op": "engagement"},
+        "branches": [
+          {
+            "id": "friendly_target",
+            "condition": {"op": "label_is", "value": "friendly"},
+            "leaf": {
+              "verdict": "FALSE_ENGAGE_FRIENDLY",
+              "points": -2.0,
+              "explanation": "Engaged a FRIENDLY track. Fratricide is never authorised."
+            }
+          },
+          {
+            "id": "civil_target",
+            "condition": {"op": "label_is", "value": "civil"},
+            "leaf": {
+              "verdict": "FALSE_ENGAGE_CIVIL",
+              "points": -1.2,
+              "explanation": "Engaged a track whose true label is CIVIL; only hostiles are authorised targets."
+            }
+          },
+          {
+            "id": "bird_target",
+            "condition": {"op": "label_is", "value": "bird"},
+            "leaf": {
+              "verdict": "FALSE_ENGAGE_CIVIL",
+              "points": -0.9,
+              "explanation": "Engaged a bird flock decoy; engaging decoys is penalised to stop trigger-happy play."
+            }
+          },
+          {
+            "id": "hostile_subtree",
+            "condition": {"op": "label_is", "value": "hostile"},
+            "branches": [
+              {
+                "id": "collateral",
+                "condition": {"op": "in_civil_sector_strict"},
+                "leaf": {
+                  "verdict": "COLLATERAL_VIOLATION",
+                  "points": -2.0,
+                  "explanation": "Engaged inside a declared civil sector beyond the tolerated wedge."
+                }
+              },
+              {
+                "id": "no_warning",
+                "condition": {"op": "no_warning"},
+                "leaf": {
+                  "verdict": "UNNECESSARY_ESCALATION",
+                  "points": -0.4,
+                  "explanation": "Engaged without issuing a warning; STANDARD requires a warning first."
+                }
+              },
+              {
+                "id": "late",
+                "condition": {"op": "tti_below", "value": 8.0},
+                "leaf": {
+                  "verdict": "LATE_ENGAGE",
+                  "points": 0.35,
+                  "explanation": "Engaged with less than {tti:.0f} s to the perimeter."
+                }
+              },
+              {
+                "id": "low_quality",
+                "condition": {"op": "track_quality_below", "value": 0.15},
+                "leaf": {
+                  "verdict": "LATE_ENGAGE",
+                  "points": 0.45,
+                  "explanation": "Engaged on a very low-quality track; the shot was unlikely to be effective."
+                }
+              },
+              {
+                "id": "correct_engage",
+                "condition": {"op": "always"},
+                "leaf": {
+                  "verdict": "CORRECT_ENGAGE",
+                  "points": 1.0,
+                  "explanation": "Correctly assessed and engaged a hostile track under STANDARD rules."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

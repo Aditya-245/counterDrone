@@ -3,25 +3,24 @@
 Table set is fixed by the specification: users, scenarios, sessions, actions,
 events, scores, skills_history, habit_features, bandit_state.
 
-All JSON-shaped columns are stored as TEXT holding UTF-8 JSON so that the
-database stays trivially portable and schema-version-tagged.
+All JSON-shaped columns are stored as JSON so that the database stays trivially
+portable and schema-version-tagged.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
-    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -29,11 +28,21 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 def _utcnow() -> datetime:
     """Return an aware UTC timestamp (the simulation core never uses wall time)."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
     """Declarative base for every SKYGYM table."""
+
+
+class UnitRow(Base):
+    """A cohort of trainees used by the unit dashboard."""
+
+    __tablename__ = "units"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 class User(Base):
@@ -48,7 +57,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    sessions: Mapped[list[Session]] = relationship(back_populates="user")
+    sessions: Mapped[list[SessionRow]] = relationship(back_populates="user")
 
     __table_args__ = (Index("ix_users_unit", "unit_id"),)
 
@@ -186,12 +195,15 @@ class SkillHistoryRow(Base):
 
 
 class HabitFeatureRow(Base):
-    """Latest per-trainee habit feature vector consumed by the Red Brain."""
+    """Latest per-trainee habit feature vector consumed by the Red Brain.
+
+    One row per trainee: the primary key is the user id, so an upsert replaces
+    the previous snapshot rather than growing a history the bandit must scan.
+    """
 
     __tablename__ = "habit_features"
 
-    id: Mapped[int] = mapped_column(Integer, primary_column=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"))
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), primary_key=True)
     session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     features_json: Mapped[JSON] = mapped_column(JSON, nullable=False)
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
@@ -211,25 +223,12 @@ class BanditStateRow(Base):
     pulls: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class UnitRow(Base):
-    """A cohort of trainees used by the unit dashboard."""
-
-    __tablename__ = "units"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    name: Mapped[str] = mapped_column(String(160), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-
-
 def row_to_dict(row: Any) -> dict[str, Any]:
     """Convert an ORM instance into a plain JSON-serialisable dict."""
     out: dict[str, Any] = {}
     for col in row.__table__.columns:
         value = getattr(row, col.name)
-        if isinstance(value, datetime):
-            out[col.name] = value.isoformat()
-        else:
-            out[col.name] = value
+        out[col.name] = value.isoformat() if isinstance(value, datetime) else value
     return out
 
 
@@ -243,7 +242,6 @@ __all__ = [
     "ScoreRow",
     "SessionRow",
     "SkillHistoryRow",
-    "Text",
     "UnitRow",
     "User",
     "row_to_dict",

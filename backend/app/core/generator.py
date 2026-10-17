@@ -207,9 +207,16 @@ def _make_threat(
     spawn_t: float,
     compression: float,
     terrain_following: bool,
+    force_hostile: bool = False,
 ) -> ThreatSpec:
-    """One hostile (or friendly/civil overflight) wave."""
-    if float(rng.random()) < _TRAP_RATE:
+    """One hostile (or friendly/civil overflight) wave.
+
+    `force_hostile` suppresses the trap roll for callers that must guarantee an
+    attack exists. The roll is still consumed so the RNG stream advances
+    identically either way.
+    """
+    trap_roll = float(rng.random())
+    if trap_roll < _TRAP_RATE and not force_hostile:
         cls, label = _CIVIL_POOL[int(rng.integers(0, len(_CIVIL_POOL)))]
     else:
         cls = _HOSTILE_POOL[int(rng.integers(0, len(_HOSTILE_POOL)))]
@@ -304,14 +311,18 @@ def _make_events(
             events.append(
                 ScenarioEvent(
                     t=round(t, 2),
-                    kind="sensor_partial" if difficulty.sensor_degradation_level < 0.8 else "sensor_failure",
+                    kind="sensor_partial"
+                    if difficulty.sensor_degradation_level < 0.8
+                    else "sensor_failure",
                     target=sid,
                     description=f"{sid} degraded",
                 )
             )
         else:
             events.append(
-                ScenarioEvent(t=round(t, 2), kind="gps_denied", description="GPS denied: tracks drift")
+                ScenarioEvent(
+                    t=round(t, 2), kind="gps_denied", description="GPS denied: tracks drift"
+                )
             )
     events.sort(key=lambda e: e.t)
     return events
@@ -353,7 +364,9 @@ def generate(
         preset=preset,
         size_m=6000.0,
         resolution=192 if duration > 600 else 160,
-        scale_m=float(rng.uniform(90.0, 220.0)) if preset is TerrainPreset.HILLS else float(rng.uniform(35.0, 90.0)),
+        scale_m=float(rng.uniform(90.0, 220.0))
+        if preset is TerrainPreset.HILLS
+        else float(rng.uniform(35.0, 90.0)),
         roughness=float(rng.uniform(0.35, 0.8)),
         seed=int(seed) % (2**31 - 1),
     )
@@ -365,16 +378,6 @@ def generate(
         rain=float(np.clip(diff.visibility * 0.6 + float(rng.uniform(0.0, 0.2)), 0.0, 0.85)),
         wind_speed_mps=float(rng.uniform(1.0, 9.0)),
         wind_heading_deg=float(rng.uniform(0.0, 360.0)),
-    )
-
-    site = SiteSpec(
-        protected_radius_m=150.0,
-        ring_distances_m=[400.0, 900.0, 1800.0, 3000.0],
-        civil_sectors=[
-            CivilSector(bearing_deg=200.0, half_width_deg=35.0, inner_m=0.0, outer_m=3000.0, label="village approach"),
-        ]
-        if float(rng.random()) < 0.6
-        else [],
     )
 
     sensors = default_sensors()
@@ -401,6 +404,21 @@ def generate(
             )
         )
 
+    if not any(w.label is LabelType.HOSTILE for w in waves):
+        # Every wave rolled as a non-hostile trap. With a single wave that
+        # leaves nothing to defend against, so re-roll wave 0 as an attack -
+        # otherwise generate() would hand back a scenario no trainee can play.
+        waves[0] = _make_threat(
+            rng,
+            0,
+            diff,
+            resolved.swarm_size,
+            base_t,
+            resolved.spawn_compression_s,
+            terrain_following,
+            force_hostile=True,
+        )
+
     decoys: list[ThreatSpec] = []
     for i in range(resolved.decoy_count):
         decoys.append(
@@ -412,6 +430,15 @@ def generate(
                 resolved.ambiguity,
             )
         )
+
+    # A declared civil sector must not sit on top of an attack bearing: the
+    # oracle (and a real operator) would correctly hold fire there, which would
+    # make the scenario unwinnable rather than hard.
+    site = SiteSpec(
+        protected_radius_m=150.0,
+        ring_distances_m=[400.0, 900.0, 1800.0, 3000.0],
+        civil_sectors=_civil_sectors(rng, [w.spawn_bearing_deg for w in (*waves, *decoys)]),
+    )
 
     events = _make_events(rng, diff, duration, sensors)
     roe = _roe_for(diff)
@@ -448,6 +475,30 @@ _TERRAIN_POOL: Final[tuple[TerrainPreset, ...]] = (
 )
 
 
+def _civil_sectors(rng: np.random.Generator, attack_bearings: list[float]) -> list[CivilSector]:
+    """Place at most one civil sector, clear of every declared attack bearing."""
+    if float(rng.random()) >= 0.6:
+        return []
+    half_width = float(rng.uniform(20.0, 35.0))
+    candidates = [
+        b
+        for b in TACTIC_BEARINGS
+        if all(min((b - a) % 360.0, (a - b) % 360.0) > half_width + 20.0 for a in attack_bearings)
+    ]
+    if not candidates:
+        return []
+    bearing = float(candidates[int(rng.integers(0, len(candidates)))])
+    return [
+        CivilSector(
+            bearing_deg=bearing,
+            half_width_deg=half_width,
+            inner_m=0.0,
+            outer_m=3000.0,
+            label="village approach",
+        )
+    ]
+
+
 def _roe_for(diff: DifficultyVector) -> RoeSpec:
     """Map `roe_strictness` onto the shipped rule set and its parameters."""
     strict = diff.roe_strictness >= 0.65
@@ -455,7 +506,9 @@ def _roe_for(diff: DifficultyVector) -> RoeSpec:
     return RoeSpec(
         rule_set=rule_set,
         require_id_before_engage=strict,
-        allowed_engage_labels=[LabelType.HOSTILE] if strict else [LabelType.HOSTILE, LabelType.CIVIL],
+        allowed_engage_labels=[LabelType.HOSTILE]
+        if strict
+        else [LabelType.HOSTILE, LabelType.CIVIL],
         friend_or_civil_warning_required=True,
         collateral_sector_tolerance=0.0 if strict else 0.25,
         late_engage_threshold_s=round(25.0 - 12.0 * float(diff.time_pressure), 2),
@@ -476,9 +529,29 @@ def _apply_overrides(scenario: Scenario, overrides: dict[str, object]) -> Scenar
     return Scenario.model_validate(data)
 
 
-def base_scenario(seed: int = 12345, **kwargs: object) -> Scenario:
+def base_scenario(
+    seed: int = 12345,
+    difficulty: DifficultyVector | None = None,
+    tags: list[str] | None = None,
+    terrain_preset: TerrainPreset | None = None,
+    scenario_id: str | None = None,
+    name: str | None = None,
+    duration_s: int | None = None,
+    source: str = "generated",
+    behaviour_overrides: dict[str, object] | None = None,
+) -> Scenario:
     """A deterministic, moderate scenario - handy for tests and the demo."""
-    return generate(seed=seed, **kwargs).scenario  # # type: ignore[arg-type]
+    return generate(
+        seed=seed,
+        difficulty=difficulty,
+        tags=tags,
+        terrain_preset=terrain_preset,
+        scenario_id=scenario_id,
+        name=name,
+        duration_s=duration_s,
+        source=source,
+        behaviour_overrides=behaviour_overrides,
+    ).scenario
 
 
 # --------------------------------------------------------------------------- #
@@ -526,7 +599,9 @@ def sanity_check(scenario: Scenario, max_seconds: float | None = None) -> tuple[
     if problems:
         return (False, "; ".join(problems))
 
-    window = float(max_seconds if max_seconds is not None else min(scenario.duration_s * 0.6, 420.0))
+    window = float(
+        max_seconds if max_seconds is not None else min(scenario.duration_s * 0.6, 420.0)
+    )
     dt = 0.2
     engine = SimEngine(scenario, dt=dt)
     max_steps = max(1, int(window / dt))
@@ -574,7 +649,13 @@ def vector_for_skill(
     """Nudge every axis that loads onto `skill` toward the target difficulty."""
     target = difficulty_for_skill(skill, rating, target_p)
     loading = {
-        "detection": ("sensor_degradation_level", "visibility", "night", "swarm_size", "simultaneity"),
+        "detection": (
+            "sensor_degradation_level",
+            "visibility",
+            "night",
+            "swarm_size",
+            "simultaneity",
+        ),
         "classification": ("ambiguity", "decoy_ratio", "visibility", "night"),
         "prioritisation": ("swarm_size", "approach_axes", "simultaneity", "time_pressure"),
         "engagement": ("time_pressure", "swarm_size", "approach_axes", "sensor_degradation_level"),

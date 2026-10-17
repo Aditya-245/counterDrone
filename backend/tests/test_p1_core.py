@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 import pytest
@@ -21,6 +22,7 @@ from app.core.schemas import (
     SensorSpec,
     SensorType,
     TerrainPreset,
+    TerrainSpec,
     ThreatSpec,
     TraineeAction,
 )
@@ -81,9 +83,7 @@ def test_difficulty_vector_axis_helpers() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize(
-    "preset", [TerrainPreset.URBAN, TerrainPreset.RURAL, TerrainPreset.HILLS]
-)
+@pytest.mark.parametrize("preset", [TerrainPreset.URBAN, TerrainPreset.RURAL, TerrainPreset.HILLS])
 def test_terrain_is_deterministic_and_bounded(preset: TerrainPreset) -> None:
     """The same TerrainSpec always yields the same heightfield."""
     spec = _terrain_spec(preset)
@@ -168,8 +168,9 @@ def test_same_seed_same_hash_with_action_log(scenario: Scenario) -> None:
     actions = [
         TraineeAction(t=120.0, type=ActionType.ACK_TRACK, track_id="T0001"),
         TraineeAction(t=125.0, type=ActionType.STEER_SENSOR, params={"sensor": "eo1", "az": 90.0}),
-        TraineeAction(t=130.0, type=ActionType.CLASSIFY, track_id="T0001",
-                      params={"class": "hostile"}),
+        TraineeAction(
+            t=130.0, type=ActionType.CLASSIFY, track_id="T0001", params={"class": "hostile"}
+        ),
     ]
 
     def run() -> str:
@@ -180,6 +181,34 @@ def test_same_seed_same_hash_with_action_log(scenario: Scenario) -> None:
         return engine.state_hash()
 
     assert run() == run()
+
+
+def test_classify_unknown_is_a_call_not_an_error(scenario: Scenario) -> None:
+    """`unknown` is a deliberate call, not an invalid label.
+
+    The classification score has separate outcomes for a hostile called
+    `unknown` and one never called at all, so the action has to be accepted: it
+    records *when* the trainee decided, while leaving `trainee_class` empty
+    (there is no `unknown` ground-truth identity). A real typo still logs.
+    """
+
+    def apply(raw: str) -> tuple[Any, list[str]]:
+        engine = SimEngine(scenario, dt=0.2)
+        engine.queue(
+            TraineeAction(t=0.0, type=ActionType.CLASSIFY, track_id="T0001", params={"class": raw})
+        )
+        engine.tick()
+        messages = [event.message for event in engine.state.world.events]
+        return engine.state.annotations["T0001"], messages
+
+    ann, messages = apply("unknown")
+    assert ann.trainee_class is None
+    assert ann.t_classified is not None
+    assert not [m for m in messages if "unknown class label" in m]
+
+    ann, messages = apply("martian")
+    assert ann.trainee_class is None
+    assert [m for m in messages if "unknown class label" in m]
 
 
 def test_save_load_roundtrip_preserves_hash(scenario: Scenario) -> None:
@@ -260,9 +289,7 @@ def test_ring_crossings_are_recorded_once(scenario: Scenario) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _terrain_spec(preset: TerrainPreset) -> "TerrainSpec":
-    from app.core.schemas import TerrainSpec
-
+def _terrain_spec(preset: TerrainPreset) -> TerrainSpec:
     return TerrainSpec(preset=preset, resolution=96, scale_m=150.0, roughness=0.6, seed=99)
 
 

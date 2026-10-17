@@ -1,0 +1,512 @@
+{
+  "$defs": {
+    "DegradationState": {
+      "description": "Operational state of a sensor.",
+      "enum": [
+        "none",
+        "partial",
+        "failed"
+      ],
+      "title": "DegradationState",
+      "type": "string"
+    },
+    "EffectorView": {
+      "additionalProperties": false,
+      "description": "Effector status panel entry.",
+      "properties": {
+        "ammunition": {
+          "default": 0,
+          "title": "Ammunition",
+          "type": "integer"
+        },
+        "cooldown_remaining_s": {
+          "default": 0.0,
+          "title": "Cooldown Remaining S",
+          "type": "number"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "soft",
+            "hard"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_range_m": {
+          "default": 0.0,
+          "title": "Max Range M",
+          "type": "number"
+        },
+        "ready": {
+          "default": true,
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "title": "EffectorView",
+      "type": "object"
+    },
+    "EntityClass": {
+      "description": "Physical class of an airborne object. Generic, synthetic categories.",
+      "enum": [
+        "quad_small",
+        "fpv_fast",
+        "fixed_wing",
+        "bird_flock",
+        "kite_balloon",
+        "friendly_uav",
+        "civil_aircraft"
+      ],
+      "title": "EntityClass",
+      "type": "string"
+    },
+    "EventKind": {
+      "description": "Kinds of events recorded in the session event log.",
+      "enum": [
+        "spawn",
+        "ring_crossing",
+        "sensor_degraded",
+        "sensor_recovered",
+        "sensor_failure",
+        "engagement",
+        "engagement_result",
+        "track_initiated",
+        "track_deleted",
+        "scenario_event",
+        "comms_loss",
+        "end"
+      ],
+      "title": "EventKind",
+      "type": "string"
+    },
+    "LabelType": {
+      "description": "Ground-truth identity.",
+      "enum": [
+        "hostile",
+        "civil",
+        "friendly",
+        "bird"
+      ],
+      "title": "LabelType",
+      "type": "string"
+    },
+    "SensorHealthView": {
+      "additionalProperties": false,
+      "description": "Sensor status strip entry.",
+      "properties": {
+        "azimuth_deg": {
+          "default": 0.0,
+          "title": "Azimuth Deg",
+          "type": "number"
+        },
+        "detections_last_step": {
+          "default": 0,
+          "title": "Detections Last Step",
+          "type": "integer"
+        },
+        "fov_deg": {
+          "default": 360.0,
+          "title": "Fov Deg",
+          "type": "number"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/DegradationState"
+        },
+        "type": {
+          "$ref": "#/$defs/SensorType"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "state"
+      ],
+      "title": "SensorHealthView",
+      "type": "object"
+    },
+    "SensorType": {
+      "description": "The four sensor classes, behind one interface.",
+      "enum": [
+        "radar",
+        "eo_ir",
+        "rf",
+        "acoustic"
+      ],
+      "title": "SensorType",
+      "type": "string"
+    },
+    "SimEvent": {
+      "additionalProperties": false,
+      "description": "A recorded simulation event.",
+      "properties": {
+        "data": {
+          "title": "Data",
+          "type": "object"
+        },
+        "entity_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entity Id"
+        },
+        "kind": {
+          "$ref": "#/$defs/EventKind"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "t": {
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "t",
+        "kind"
+      ],
+      "title": "SimEvent",
+      "type": "object"
+    },
+    "TrackView": {
+      "additionalProperties": false,
+      "description": "A fused, trainee-visible track. Contains no ground truth.",
+      "properties": {
+        "acknowledged": {
+          "default": false,
+          "title": "Acknowledged",
+          "type": "boolean"
+        },
+        "age_s": {
+          "default": 0.0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "altitude_m": {
+          "default": 0.0,
+          "title": "Altitude M",
+          "type": "number"
+        },
+        "bearing_deg": {
+          "default": 0.0,
+          "title": "Bearing Deg",
+          "type": "number"
+        },
+        "class_confidence": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Class Confidence",
+          "type": "number"
+        },
+        "confirmed": {
+          "default": false,
+          "title": "Confirmed",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "missed": {
+          "default": false,
+          "title": "Missed",
+          "type": "boolean"
+        },
+        "neutralised": {
+          "default": false,
+          "title": "Neutralised",
+          "type": "boolean"
+        },
+        "position_sigma_m": {
+          "default": 100.0,
+          "title": "Position Sigma M",
+          "type": "number"
+        },
+        "quality": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Quality",
+          "type": "number"
+        },
+        "radial_mps": {
+          "default": 0.0,
+          "title": "Radial Mps",
+          "type": "number"
+        },
+        "range_m": {
+          "default": 0.0,
+          "title": "Range M",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "sensors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sensors",
+          "type": "array"
+        },
+        "speed_mps": {
+          "default": 0.0,
+          "title": "Speed Mps",
+          "type": "number"
+        },
+        "suggested_class": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntityClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "suggested_label": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LabelType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "time_to_perimeter_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time To Perimeter S"
+        },
+        "trainee_class": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LabelType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trainee_priority": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trainee Priority"
+        },
+        "velocity_sigma_mps": {
+          "default": 10.0,
+          "title": "Velocity Sigma Mps",
+          "type": "number"
+        },
+        "vx": {
+          "default": 0.0,
+          "title": "Vx",
+          "type": "number"
+        },
+        "vy": {
+          "default": 0.0,
+          "title": "Vy",
+          "type": "number"
+        },
+        "vz": {
+          "default": 0.0,
+          "title": "Vz",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "x",
+        "y",
+        "z",
+        "quality"
+      ],
+      "title": "TrackView",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The 10 Hz authoritative frame pushed over the WebSocket.",
+  "properties": {
+    "allow_pause": {
+      "default": false,
+      "title": "Allow Pause",
+      "type": "boolean"
+    },
+    "ammo_remaining": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Ammo Remaining",
+      "type": "object"
+    },
+    "duration_s": {
+      "title": "Duration S",
+      "type": "number"
+    },
+    "effectors": {
+      "items": {
+        "$ref": "#/$defs/EffectorView"
+      },
+      "title": "Effectors",
+      "type": "array"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/SimEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "paused": {
+      "default": false,
+      "title": "Paused",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "default": 3,
+      "description": "Wire schema version; unknown versions are rejected at the boundary.",
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sensors": {
+      "items": {
+        "$ref": "#/$defs/SensorHealthView"
+      },
+      "title": "Sensors",
+      "type": "array"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "status": {
+      "default": "running",
+      "enum": [
+        "running",
+        "paused",
+        "finished"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "step": {
+      "title": "Step",
+      "type": "integer"
+    },
+    "t": {
+      "title": "T",
+      "type": "number"
+    },
+    "tracks": {
+      "items": {
+        "$ref": "#/$defs/TrackView"
+      },
+      "title": "Tracks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "session_id",
+    "t",
+    "step",
+    "duration_s"
+  ],
+  "title": "StateFrame",
+  "type": "object",
+  "x-skygym-schema-version": 3
+}

@@ -1,0 +1,1280 @@
+{
+  "$defs": {
+    "BearingPoint": {
+      "description": "A polar spawn specification: bearing from the site plus slant range.",
+      "properties": {
+        "altitude_m": {
+          "default": 120.0,
+          "maximum": 1200.0,
+          "minimum": 0.0,
+          "title": "Altitude M",
+          "type": "number"
+        },
+        "bearing_deg": {
+          "description": "Clockwise from +X (east).",
+          "maximum": 360.0,
+          "minimum": 0.0,
+          "title": "Bearing Deg",
+          "type": "number"
+        },
+        "range_m": {
+          "maximum": 6000.0,
+          "minimum": 50.0,
+          "title": "Range M",
+          "type": "number"
+        }
+      },
+      "required": [
+        "bearing_deg",
+        "range_m"
+      ],
+      "title": "BearingPoint",
+      "type": "object"
+    },
+    "BehaviourKind": {
+      "description": "Scripted / procedural movement behaviours.",
+      "enum": [
+        "waypoint",
+        "loiter",
+        "terminal_dive",
+        "orbit_then_strike",
+        "decoy_lure",
+        "swarm",
+        "transit"
+      ],
+      "title": "BehaviourKind",
+      "type": "string"
+    },
+    "BehaviourSpec": {
+      "additionalProperties": false,
+      "description": "Parameters for a scripted or procedural behaviour.",
+      "properties": {
+        "alignment_weight": {
+          "default": 0.25,
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Alignment Weight",
+          "type": "number"
+        },
+        "cohesion_weight": {
+          "default": 0.35,
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Cohesion Weight",
+          "type": "number"
+        },
+        "kind": {
+          "$ref": "#/$defs/BehaviourKind",
+          "default": "waypoint"
+        },
+        "loiter_period_s": {
+          "default": 40.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Loiter Period S",
+          "type": "number"
+        },
+        "loiter_radius_m": {
+          "default": 120.0,
+          "minimum": 5.0,
+          "title": "Loiter Radius M",
+          "type": "number"
+        },
+        "min_clearance_m": {
+          "default": 18.0,
+          "maximum": 400.0,
+          "minimum": 2.0,
+          "title": "Min Clearance M",
+          "type": "number"
+        },
+        "orbit_period_s": {
+          "default": 55.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Orbit Period S",
+          "type": "number"
+        },
+        "orbit_radius_m": {
+          "default": 180.0,
+          "minimum": 10.0,
+          "title": "Orbit Radius M",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "separation_m": {
+          "default": 18.0,
+          "minimum": 1.0,
+          "title": "Separation M",
+          "type": "number"
+        },
+        "speed_mps": {
+          "anyOf": [
+            {
+              "maximum": 120.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speed Mps"
+        },
+        "strike_bearing_deg": {
+          "anyOf": [
+            {
+              "maximum": 360.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strike Bearing Deg"
+        },
+        "terminal_altitude_m": {
+          "default": 30.0,
+          "minimum": 0.0,
+          "title": "Terminal Altitude M",
+          "type": "number"
+        },
+        "terrain_following": {
+          "default": false,
+          "description": "Hold a clearance above local ground instead of a fixed altitude.",
+          "title": "Terrain Following",
+          "type": "boolean"
+        },
+        "waypoints": {
+          "items": {
+            "$ref": "#/$defs/Vec3"
+          },
+          "title": "Waypoints",
+          "type": "array"
+        }
+      },
+      "title": "BehaviourSpec",
+      "type": "object"
+    },
+    "BuildingSpec": {
+      "additionalProperties": false,
+      "description": "An abstract building block, used for LOS/occlusion in urban presets.",
+      "properties": {
+        "depth_m": {
+          "exclusiveMinimum": 0.0,
+          "title": "Depth M",
+          "type": "number"
+        },
+        "height_m": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height M",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "width_m": {
+          "exclusiveMinimum": 0.0,
+          "title": "Width M",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width_m",
+        "depth_m",
+        "height_m"
+      ],
+      "title": "BuildingSpec",
+      "type": "object"
+    },
+    "CivilSector": {
+      "additionalProperties": false,
+      "description": "A bearing wedge declared as containing civilians.",
+      "properties": {
+        "bearing_deg": {
+          "maximum": 360.0,
+          "minimum": 0.0,
+          "title": "Bearing Deg",
+          "type": "number"
+        },
+        "half_width_deg": {
+          "default": 20.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 90.0,
+          "title": "Half Width Deg",
+          "type": "number"
+        },
+        "inner_m": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Inner M",
+          "type": "number"
+        },
+        "label": {
+          "default": "civil sector",
+          "title": "Label",
+          "type": "string"
+        },
+        "outer_m": {
+          "default": 6000.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Outer M",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bearing_deg"
+      ],
+      "title": "CivilSector",
+      "type": "object"
+    },
+    "DegradationState": {
+      "description": "Operational state of a sensor.",
+      "enum": [
+        "none",
+        "partial",
+        "failed"
+      ],
+      "title": "DegradationState",
+      "type": "string"
+    },
+    "DifficultyVector": {
+      "additionalProperties": false,
+      "description": "Normalised 0..1 difficulty knobs, one per adaptive axis.",
+      "properties": {
+        "ambiguity": {
+          "default": 0.2,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Ambiguity",
+          "type": "number"
+        },
+        "approach_axes": {
+          "default": 0.3,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Approach Axes",
+          "type": "number"
+        },
+        "decoy_ratio": {
+          "default": 0.2,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Decoy Ratio",
+          "type": "number"
+        },
+        "night": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Night",
+          "type": "number"
+        },
+        "roe_strictness": {
+          "default": 0.3,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Roe Strictness",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "sensor_degradation_level": {
+          "default": 0.2,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Sensor Degradation Level",
+          "type": "number"
+        },
+        "simultaneity": {
+          "default": 0.3,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Simultaneity",
+          "type": "number"
+        },
+        "swarm_size": {
+          "default": 0.3,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Swarm Size",
+          "type": "number"
+        },
+        "time_pressure": {
+          "default": 0.3,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Time Pressure",
+          "type": "number"
+        },
+        "visibility": {
+          "default": 0.7,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Visibility",
+          "type": "number"
+        }
+      },
+      "title": "DifficultyVector",
+      "type": "object"
+    },
+    "EffectorSpec": {
+      "additionalProperties": false,
+      "description": "An abstract effector.\n\n``Effector-S`` is a soft-kill effector, ``Effector-H`` a hard-kill effector.\nRanges, cooldowns and probabilities below are invented for simulation and do\nnot describe any real system.",
+      "properties": {
+        "ammunition": {
+          "default": 12,
+          "maximum": 999,
+          "minimum": 0,
+          "title": "Ammunition",
+          "type": "integer"
+        },
+        "base_success": {
+          "default": 0.75,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Base Success",
+          "type": "number"
+        },
+        "cooldown_s": {
+          "default": 6.0,
+          "minimum": 0.0,
+          "title": "Cooldown S",
+          "type": "number"
+        },
+        "id": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "soft",
+          "enum": [
+            "soft",
+            "hard"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_range_m": {
+          "default": 1500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Max Range M",
+          "type": "number"
+        },
+        "min_range_m": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Min Range M",
+          "type": "number"
+        },
+        "reload_s": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Reload S",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "susceptible_to_rf_silence": {
+          "default": true,
+          "description": "Soft-kill is less effective against RF-silent targets.",
+          "title": "Susceptible To Rf Silence",
+          "type": "boolean"
+        },
+        "x": {
+          "default": 0.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "default": 0.0,
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "default": 0.0,
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "EffectorSpec",
+      "type": "object"
+    },
+    "EntityClass": {
+      "description": "Physical class of an airborne object. Generic, synthetic categories.",
+      "enum": [
+        "quad_small",
+        "fpv_fast",
+        "fixed_wing",
+        "bird_flock",
+        "kite_balloon",
+        "friendly_uav",
+        "civil_aircraft"
+      ],
+      "title": "EntityClass",
+      "type": "string"
+    },
+    "EnvSpec": {
+      "additionalProperties": false,
+      "description": "Atmospheric / lighting environment.",
+      "properties": {
+        "rain": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Rain",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "time_of_day": {
+          "$ref": "#/$defs/TimeOfDay",
+          "default": "day"
+        },
+        "visibility_m": {
+          "default": 8000.0,
+          "description": "Meteorological range.",
+          "maximum": 20000.0,
+          "minimum": 50.0,
+          "title": "Visibility M",
+          "type": "number"
+        },
+        "wind_heading_deg": {
+          "default": 270.0,
+          "maximum": 360.0,
+          "minimum": 0.0,
+          "title": "Wind Heading Deg",
+          "type": "number"
+        },
+        "wind_speed_mps": {
+          "default": 2.0,
+          "maximum": 35.0,
+          "minimum": 0.0,
+          "title": "Wind Speed Mps",
+          "type": "number"
+        }
+      },
+      "title": "EnvSpec",
+      "type": "object"
+    },
+    "FormationKind": {
+      "description": "Swarm formation presets.",
+      "enum": [
+        "line",
+        "wedge",
+        "scatter",
+        "pincer",
+        "leader_follower"
+      ],
+      "title": "FormationKind",
+      "type": "string"
+    },
+    "LabelType": {
+      "description": "Ground-truth identity.",
+      "enum": [
+        "hostile",
+        "civil",
+        "friendly",
+        "bird"
+      ],
+      "title": "LabelType",
+      "type": "string"
+    },
+    "RoeSpec": {
+      "additionalProperties": false,
+      "description": "Which ROE rule set applies and its scalar parameters.",
+      "properties": {
+        "allowed_engage_labels": {
+          "description": "Ground-truth labels the rule set permits engaging (evaluation only).",
+          "items": {
+            "$ref": "#/$defs/LabelType"
+          },
+          "title": "Allowed Engage Labels",
+          "type": "array"
+        },
+        "collateral_sector_tolerance": {
+          "default": 0.0,
+          "description": "Allowed fraction of civil-sector bearing.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Collateral Sector Tolerance",
+          "type": "number"
+        },
+        "friend_or_civil_warning_required": {
+          "default": true,
+          "title": "Friend Or Civil Warning Required",
+          "type": "boolean"
+        },
+        "late_engage_threshold_s": {
+          "default": 20.0,
+          "minimum": 0.0,
+          "title": "Late Engage Threshold S",
+          "type": "number"
+        },
+        "max_time_to_impact_s": {
+          "default": 999.0,
+          "description": "Engage after this time-to-impact is 'late'.",
+          "exclusiveMinimum": 0.0,
+          "title": "Max Time To Impact S",
+          "type": "number"
+        },
+        "min_track_quality": {
+          "default": 0.15,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Min Track Quality",
+          "type": "number"
+        },
+        "require_id_before_engage": {
+          "default": false,
+          "description": "TRUE for STRICT: positive ID required before any engagement.",
+          "title": "Require Id Before Engage",
+          "type": "boolean"
+        },
+        "require_warning_before_engage": {
+          "default": true,
+          "title": "Require Warning Before Engage",
+          "type": "boolean"
+        },
+        "rule_set": {
+          "$ref": "#/$defs/RuleSetId",
+          "default": "STANDARD"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "title": "RoeSpec",
+      "type": "object"
+    },
+    "RuleSetId": {
+      "description": "Shipped ROE rule sets.",
+      "enum": [
+        "STRICT",
+        "STANDARD",
+        "PERMISSIVE"
+      ],
+      "title": "RuleSetId",
+      "type": "string"
+    },
+    "Scenario": {
+      "additionalProperties": false,
+      "description": "A complete, self-contained simulation scenario.",
+      "properties": {
+        "decoys": {
+          "items": {
+            "$ref": "#/$defs/ThreatSpec"
+          },
+          "title": "Decoys",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "difficulty": {
+          "$ref": "#/$defs/DifficultyVector"
+        },
+        "duration_s": {
+          "default": 600,
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Duration S",
+          "type": "integer"
+        },
+        "effectors": {
+          "items": {
+            "$ref": "#/$defs/EffectorSpec"
+          },
+          "title": "Effectors",
+          "type": "array"
+        },
+        "environment": {
+          "$ref": "#/$defs/EnvSpec"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/ScenarioEvent"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "instructor_locked": {
+          "default": false,
+          "title": "Instructor Locked",
+          "type": "boolean"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "roe": {
+          "$ref": "#/$defs/RoeSpec"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seed": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "sensors": {
+          "items": {
+            "$ref": "#/$defs/SensorSpec"
+          },
+          "title": "Sensors",
+          "type": "array"
+        },
+        "site": {
+          "$ref": "#/$defs/SiteSpec"
+        },
+        "source": {
+          "default": "shipped",
+          "enum": [
+            "shipped",
+            "generated",
+            "builder",
+            "nlu",
+            "template"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "terrain": {
+          "$ref": "#/$defs/TerrainSpec"
+        },
+        "threats": {
+          "items": {
+            "$ref": "#/$defs/ThreatSpec"
+          },
+          "title": "Threats",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "seed"
+      ],
+      "title": "Scenario",
+      "type": "object"
+    },
+    "ScenarioEvent": {
+      "additionalProperties": false,
+      "description": "A timed in-scenario event injected by the scenario author.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "sensor_failure",
+            "sensor_partial",
+            "sensor_restore",
+            "new_wave",
+            "comms_loss",
+            "comms_restore",
+            "gps_denied",
+            "gps_restored",
+            "note"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "params": {
+          "title": "Params",
+          "type": "object"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "t": {
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sensor id or wave name.",
+          "title": "Target"
+        }
+      },
+      "required": [
+        "t",
+        "kind"
+      ],
+      "title": "ScenarioEvent",
+      "type": "object"
+    },
+    "SensorDegradation": {
+      "additionalProperties": false,
+      "description": "A timed change of a sensor's operational state.",
+      "properties": {
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/DegradationState"
+        },
+        "t": {
+          "description": "Seconds from scenario start.",
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "state"
+      ],
+      "title": "SensorDegradation",
+      "type": "object"
+    },
+    "SensorSpec": {
+      "additionalProperties": false,
+      "description": "Placement and static configuration of one sensor.",
+      "properties": {
+        "degradations": {
+          "items": {
+            "$ref": "#/$defs/SensorDegradation"
+          },
+          "title": "Degradations",
+          "type": "array"
+        },
+        "drift_mps": {
+          "default": 0.0,
+          "description": "GPS-denied position drift rate (metres per second).",
+          "minimum": 0.0,
+          "title": "Drift Mps",
+          "type": "number"
+        },
+        "fov_deg": {
+          "default": 360.0,
+          "description": "Azimuthal field of view.",
+          "exclusiveMinimum": 0.0,
+          "maximum": 360.0,
+          "title": "Fov Deg",
+          "type": "number"
+        },
+        "id": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "initial_state": {
+          "$ref": "#/$defs/DegradationState",
+          "default": "none"
+        },
+        "max_range_m": {
+          "default": 6000.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Max Range M",
+          "type": "number"
+        },
+        "min_range_m": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Min Range M",
+          "type": "number"
+        },
+        "params": {
+          "title": "Params",
+          "type": "object"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "$ref": "#/$defs/SensorType"
+        },
+        "x": {
+          "default": 0.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "default": 0.0,
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "default": 0.0,
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "SensorSpec",
+      "type": "object"
+    },
+    "SensorType": {
+      "description": "The four sensor classes, behind one interface.",
+      "enum": [
+        "radar",
+        "eo_ir",
+        "rf",
+        "acoustic"
+      ],
+      "title": "SensorType",
+      "type": "string"
+    },
+    "SiteSpec": {
+      "additionalProperties": false,
+      "description": "The defended site: protected zone, perimeter rings, civil sectors.",
+      "properties": {
+        "civil_sectors": {
+          "items": {
+            "$ref": "#/$defs/CivilSector"
+          },
+          "title": "Civil Sectors",
+          "type": "array"
+        },
+        "protected_radius_m": {
+          "default": 150.0,
+          "exclusiveMinimum": 10.0,
+          "title": "Protected Radius M",
+          "type": "number"
+        },
+        "ring_distances_m": {
+          "description": "Perimeter rings, ascending.",
+          "items": {
+            "type": "number"
+          },
+          "title": "Ring Distances M",
+          "type": "array"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "title": "SiteSpec",
+      "type": "object"
+    },
+    "TerrainPreset": {
+      "description": "Procedural terrain generator preset.",
+      "enum": [
+        "urban",
+        "rural",
+        "hills"
+      ],
+      "title": "TerrainPreset",
+      "type": "string"
+    },
+    "TerrainSpec": {
+      "additionalProperties": false,
+      "description": "Terrain description: procedural preset or imported heightmap.",
+      "properties": {
+        "buildings": {
+          "items": {
+            "$ref": "#/$defs/BuildingSpec"
+          },
+          "title": "Buildings",
+          "type": "array"
+        },
+        "heightmap_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional PNG; grayscale -> metres using scale_m.",
+          "title": "Heightmap Path"
+        },
+        "max_height_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override for imported heightmaps (0..255 -> 0..max).",
+          "title": "Max Height M"
+        },
+        "preset": {
+          "$ref": "#/$defs/TerrainPreset",
+          "default": "rural"
+        },
+        "resolution": {
+          "default": 256,
+          "description": "Grid posts per side.",
+          "maximum": 1024,
+          "minimum": 64,
+          "title": "Resolution",
+          "type": "integer"
+        },
+        "roughness": {
+          "default": 0.55,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Roughness",
+          "type": "number"
+        },
+        "scale_m": {
+          "default": 180.0,
+          "description": "Peak height above datum.",
+          "minimum": 1.0,
+          "title": "Scale M",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seed": {
+          "default": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "size_m": {
+          "default": 6000.0,
+          "description": "Square ENU extent.",
+          "exclusiveMinimum": 500.0,
+          "title": "Size M",
+          "type": "number"
+        }
+      },
+      "title": "TerrainSpec",
+      "type": "object"
+    },
+    "ThreatSpec": {
+      "additionalProperties": false,
+      "description": "A group of entities spawned as one wave.",
+      "properties": {
+        "beacon_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Beacon Active"
+        },
+        "behaviour": {
+          "$ref": "#/$defs/BehaviourSpec"
+        },
+        "count": {
+          "default": 1,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "entity_class": {
+          "$ref": "#/$defs/EntityClass"
+        },
+        "formation": {
+          "$ref": "#/$defs/FormationKind",
+          "default": "leader_follower"
+        },
+        "hint_bias": {
+          "default": 0.0,
+          "description": "Bias of weak class hints toward 'hostile'.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Hint Bias",
+          "type": "number"
+        },
+        "label": {
+          "$ref": "#/$defs/LabelType"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "rf_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "None means 'use the class table default'.",
+          "title": "Rf Active"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "spawn_bearing_deg": {
+          "default": 45.0,
+          "maximum": 360.0,
+          "minimum": 0.0,
+          "title": "Spawn Bearing Deg",
+          "type": "number"
+        },
+        "spawn_jitter_deg": {
+          "default": 25.0,
+          "maximum": 180.0,
+          "minimum": 0.0,
+          "title": "Spawn Jitter Deg",
+          "type": "number"
+        },
+        "spawn_offset_m": {
+          "default": 0.0,
+          "description": "Formation offset along the bearing.",
+          "title": "Spawn Offset M",
+          "type": "number"
+        },
+        "spawn_points": {
+          "description": "Empty means 'procedural from bearing/jitter'.",
+          "items": {
+            "$ref": "#/$defs/BearingPoint"
+          },
+          "title": "Spawn Points",
+          "type": "array"
+        },
+        "spawn_t": {
+          "default": 0.0,
+          "description": "Earliest spawn time.",
+          "minimum": 0.0,
+          "title": "Spawn T",
+          "type": "number"
+        },
+        "spawn_window_s": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Spawn Window S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "entity_class",
+        "label"
+      ],
+      "title": "ThreatSpec",
+      "type": "object"
+    },
+    "TimeOfDay": {
+      "description": "Lighting condition; drives EO/IR and radar clutter.",
+      "enum": [
+        "day",
+        "dusk",
+        "night"
+      ],
+      "title": "TimeOfDay",
+      "type": "string"
+    },
+    "Vec3": {
+      "description": "A 3-vector in local ENU metres.",
+      "properties": {
+        "x": {
+          "default": 0.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "default": 0.0,
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "default": 0.0,
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "title": "Vec3",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Outcome of the natural-language scenario builder.",
+  "properties": {
+    "attempts": {
+      "title": "Attempts",
+      "type": "integer"
+    },
+    "explanation": {
+      "title": "Explanation",
+      "type": "string"
+    },
+    "llm_available": {
+      "default": false,
+      "title": "Llm Available",
+      "type": "boolean"
+    },
+    "path": {
+      "enum": [
+        "llm",
+        "rule_based",
+        "llm_fallback_rule_based"
+      ],
+      "title": "Path",
+      "type": "string"
+    },
+    "sanity_message": {
+      "default": "",
+      "title": "Sanity Message",
+      "type": "string"
+    },
+    "sanity_ok": {
+      "default": false,
+      "title": "Sanity Ok",
+      "type": "boolean"
+    },
+    "scenario": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Scenario"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "default": 3,
+      "description": "Wire schema version; unknown versions are rejected at the boundary.",
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "validation_errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Validation Errors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "scenario",
+    "path",
+    "explanation",
+    "attempts"
+  ],
+  "title": "NlBuildResult",
+  "type": "object",
+  "x-skygym-schema-version": 3
+}

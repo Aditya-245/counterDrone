@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Normalised 0..1 difficulty knobs, one per adaptive axis.",
+  "properties": {
+    "ambiguity": {
+      "default": 0.2,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Ambiguity",
+      "type": "number"
+    },
+    "approach_axes": {
+      "default": 0.3,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Approach Axes",
+      "type": "number"
+    },
+    "decoy_ratio": {
+      "default": 0.2,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Decoy Ratio",
+      "type": "number"
+    },
+    "night": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Night",
+      "type": "number"
+    },
+    "roe_strictness": {
+      "default": 0.3,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Roe Strictness",
+      "type": "number"
+    },
+    "schema_version": {
+      "default": 3,
+      "description": "Wire schema version; unknown versions are rejected at the boundary.",
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sensor_degradation_level": {
+      "default": 0.2,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Sensor Degradation Level",
+      "type": "number"
+    },
+    "simultaneity": {
+      "default": 0.3,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Simultaneity",
+      "type": "number"
+    },
+    "swarm_size": {
+      "default": 0.3,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Swarm Size",
+      "type": "number"
+    },
+    "time_pressure": {
+      "default": 0.3,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Time Pressure",
+      "type": "number"
+    },
+    "visibility": {
+      "default": 0.7,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Visibility",
+      "type": "number"
+    }
+  },
+  "title": "DifficultyVector",
+  "type": "object",
+  "x-skygym-schema-version": 3
+}

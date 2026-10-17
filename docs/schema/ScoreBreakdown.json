@@ -1,0 +1,546 @@
+{
+  "$defs": {
+    "CoachingPoint": {
+      "additionalProperties": false,
+      "description": "A rule-based coaching message (never LLM generated).",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "related_entities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Entities",
+          "type": "array"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warn",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "text"
+      ],
+      "title": "CoachingPoint",
+      "type": "object"
+    },
+    "EntityClass": {
+      "description": "Physical class of an airborne object. Generic, synthetic categories.",
+      "enum": [
+        "quad_small",
+        "fpv_fast",
+        "fixed_wing",
+        "bird_flock",
+        "kite_balloon",
+        "friendly_uav",
+        "civil_aircraft"
+      ],
+      "title": "EntityClass",
+      "type": "string"
+    },
+    "EntityScore": {
+      "additionalProperties": false,
+      "description": "Per-entity detail block in the score breakdown.",
+      "properties": {
+        "classification_calibration": {
+          "default": "none",
+          "title": "Classification Calibration",
+          "type": "string"
+        },
+        "classification_correct": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classification Correct"
+        },
+        "detection_latency_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detection Latency S"
+        },
+        "effector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effector"
+        },
+        "engage_range_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engage Range M"
+        },
+        "entity_class": {
+          "$ref": "#/$defs/EntityClass"
+        },
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "neutralised": {
+          "default": false,
+          "title": "Neutralised",
+          "type": "boolean"
+        },
+        "reached_perimeter": {
+          "default": false,
+          "title": "Reached Perimeter",
+          "type": "boolean"
+        },
+        "ring_crossings": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Ring Crossings",
+          "type": "object"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "score": {
+          "default": 0.0,
+          "title": "Score",
+          "type": "number"
+        },
+        "t_classified": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T Classified"
+        },
+        "t_closest_approach": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T Closest Approach"
+        },
+        "t_engaged": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T Engaged"
+        },
+        "t_first_ack": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T First Ack"
+        },
+        "t_first_detectable": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T First Detectable"
+        },
+        "t_perimeter": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T Perimeter"
+        },
+        "trainee_label": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LabelType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "true_label": {
+          "$ref": "#/$defs/LabelType"
+        },
+        "verdicts": {
+          "items": {
+            "$ref": "#/$defs/VerdictRecord"
+          },
+          "title": "Verdicts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "entity_id",
+        "entity_class",
+        "true_label"
+      ],
+      "title": "EntityScore",
+      "type": "object"
+    },
+    "LabelType": {
+      "description": "Ground-truth identity.",
+      "enum": [
+        "hostile",
+        "civil",
+        "friendly",
+        "bird"
+      ],
+      "title": "LabelType",
+      "type": "string"
+    },
+    "ScoreWeights": {
+      "additionalProperties": false,
+      "description": "Configurable sub-score weights (must sum to 100).",
+      "properties": {
+        "classification": {
+          "default": 25.0,
+          "title": "Classification",
+          "type": "number"
+        },
+        "detection": {
+          "default": 20.0,
+          "title": "Detection",
+          "type": "number"
+        },
+        "engagement": {
+          "default": 30.0,
+          "title": "Engagement",
+          "type": "number"
+        },
+        "prioritisation": {
+          "default": 15.0,
+          "title": "Prioritisation",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "workload": {
+          "default": 10.0,
+          "title": "Workload",
+          "type": "number"
+        }
+      },
+      "title": "ScoreWeights",
+      "type": "object"
+    },
+    "Verdict": {
+      "description": "Every leaf of the ROE decision tree.",
+      "enum": [
+        "CORRECT_ENGAGE",
+        "CORRECT_HOLD",
+        "LATE_ENGAGE",
+        "MISSED_THREAT",
+        "FALSE_ENGAGE_CIVIL",
+        "FALSE_ENGAGE_FRIENDLY",
+        "COLLATERAL_VIOLATION",
+        "PREMATURE_ENGAGE",
+        "UNNECESSARY_ESCALATION"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "VerdictRecord": {
+      "additionalProperties": false,
+      "description": "One ROE evaluation, with the tree path that produced it.",
+      "properties": {
+        "collateral_risk": {
+          "default": false,
+          "title": "Collateral Risk",
+          "type": "boolean"
+        },
+        "effector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effector"
+        },
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Path",
+          "type": "array"
+        },
+        "points": {
+          "title": "Points",
+          "type": "number"
+        },
+        "range_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Range M"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        },
+        "trainee_label": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LabelType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "true_label": {
+          "$ref": "#/$defs/LabelType"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "entity_id",
+        "t",
+        "verdict",
+        "points",
+        "explanation",
+        "true_label"
+      ],
+      "title": "VerdictRecord",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The full score of a session.",
+  "properties": {
+    "cap_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cap Reason"
+    },
+    "capped": {
+      "default": false,
+      "title": "Capped",
+      "type": "boolean"
+    },
+    "classification": {
+      "default": 0.0,
+      "maximum": 25.0,
+      "minimum": 0.0,
+      "title": "Classification",
+      "type": "number"
+    },
+    "coaching_points": {
+      "items": {
+        "$ref": "#/$defs/CoachingPoint"
+      },
+      "title": "Coaching Points",
+      "type": "array"
+    },
+    "detection": {
+      "default": 0.0,
+      "maximum": 20.0,
+      "minimum": 0.0,
+      "title": "Detection",
+      "type": "number"
+    },
+    "engagement": {
+      "default": 0.0,
+      "maximum": 30.0,
+      "minimum": 0.0,
+      "title": "Engagement",
+      "type": "number"
+    },
+    "entities": {
+      "items": {
+        "$ref": "#/$defs/EntityScore"
+      },
+      "title": "Entities",
+      "type": "array"
+    },
+    "prioritisation": {
+      "default": 0.0,
+      "maximum": 15.0,
+      "minimum": 0.0,
+      "title": "Prioritisation",
+      "type": "number"
+    },
+    "raw_total": {
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Raw Total",
+      "type": "number"
+    },
+    "schema_version": {
+      "default": 3,
+      "description": "Wire schema version; unknown versions are rejected at the boundary.",
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "stats": {
+      "title": "Stats",
+      "type": "object"
+    },
+    "total": {
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Total",
+      "type": "number"
+    },
+    "verdict_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Verdict Counts",
+      "type": "object"
+    },
+    "verdicts": {
+      "items": {
+        "$ref": "#/$defs/VerdictRecord"
+      },
+      "title": "Verdicts",
+      "type": "array"
+    },
+    "weights": {
+      "$ref": "#/$defs/ScoreWeights"
+    },
+    "workload": {
+      "default": 0.0,
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "title": "Workload",
+      "type": "number"
+    }
+  },
+  "required": [
+    "total",
+    "raw_total"
+  ],
+  "title": "ScoreBreakdown",
+  "type": "object",
+  "x-skygym-schema-version": 3
+}

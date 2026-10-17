@@ -1,0 +1,134 @@
+{
+  "$defs": {
+    "ActionType": {
+      "description": "Everything a trainee (or the oracle) can do.",
+      "enum": [
+        "ACK_TRACK",
+        "CLASSIFY",
+        "SET_PRIORITY",
+        "STEER_SENSOR",
+        "WARN",
+        "ENGAGE_S",
+        "ENGAGE_H",
+        "HOLD_FIRE",
+        "REQUEST_ID",
+        "PAUSE_REQUEST"
+      ],
+      "title": "ActionType",
+      "type": "string"
+    },
+    "TraineeAction": {
+      "additionalProperties": false,
+      "description": "One trainee decision, as stored in the action log.\n\nThe ordered log plus the seed *is* the determinism contract.",
+      "properties": {
+        "params": {
+          "title": "Params",
+          "type": "object"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "default": "trainee",
+          "enum": [
+            "trainee",
+            "oracle",
+            "scripted",
+            "instructor"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "t": {
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "maxLength": 48,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        },
+        "type": {
+          "$ref": "#/$defs/ActionType"
+        }
+      },
+      "required": [
+        "t",
+        "type"
+      ],
+      "title": "TraineeAction",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Re-simulate from a decision point with a modified action.",
+  "properties": {
+    "fork_t": {
+      "minimum": 0.0,
+      "title": "Fork T",
+      "type": "number"
+    },
+    "inject_action": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TraineeAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "replace_all_from": {
+      "default": true,
+      "description": "Drop every trainee action at or after fork_t.",
+      "title": "Replace All From",
+      "type": "boolean"
+    },
+    "replace_index": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Index into the trainee action log to replace.",
+      "title": "Replace Index"
+    },
+    "schema_version": {
+      "default": 3,
+      "description": "Wire schema version; unknown versions are rejected at the boundary.",
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "fork_t"
+  ],
+  "title": "ForkRequest",
+  "type": "object",
+  "x-skygym-schema-version": 3
+}

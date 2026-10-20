@@ -63,7 +63,7 @@ Then open <http://127.0.0.1:5173>.
 | `make e2e` | Playwright smoke test against a running stack |
 
 The first `make seed` on an empty database plays 20 synthetic sessions so the
-dashboards have real history, which takes a couple of minutes on a modest laptop;
+dashboards have real history, which takes about five minutes on a modest laptop;
 every later run is seconds, because it only simulates what is missing. For a
 richer dashboard use `SKYGYM_DEMO_SESSIONS=20 make seed` (20 per trainee).
 
@@ -108,6 +108,10 @@ nothing to break offline**. Three camera views are one click away: **Ground** (e
 height), **Site** (the tactical orbit) and **Top** (overview); WASD pans and the camera
 never sinks through the terrain.
 
+| Rural, daylight | Urban, night |
+| --- | --- |
+| ![Rural scenario at ground level](docs/img/sim-rural-day.png) | ![Night swarm at ground level](docs/img/sim-city-night.png) |
+
 Only the footprints a scenario carries block detection; everything the generator invents
 for context is scenery. See D033 in [`DECISIONS.md`](DECISIONS.md).
 
@@ -132,6 +136,8 @@ determinism tests, including a multi-process hash-seed check.
 ---
 
 ## Scenario library
+
+![The scenario library](docs/img/library.png)
 
 The library ships **two curated scenarios, one rural and one urban**, and the
 generator covers every other combination on demand.

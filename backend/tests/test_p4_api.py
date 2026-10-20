@@ -144,7 +144,7 @@ def test_rule_set_tree_is_public(client: TestClient) -> None:
 def test_unknown_schema_version_is_rejected(client: TestClient) -> None:
     """The boundary refuses a payload this build cannot read."""
     payload = {"schema_version": SCHEMA_VERSION + 99, "text": "hello"}
-    r = client.post("/api/builder/natural-language", json=payload)
+    r = client.post("/api/scenarios/validate", json=payload)
     assert r.status_code == 422
     detail = r.json()["detail"]
     assert detail["code"] == "unsupported_schema_version"
@@ -210,24 +210,35 @@ def test_redbrain_report_has_evidence(client: TestClient) -> None:
         assert exploit["description"]
 
 
-def test_builder_status_and_nl(client: TestClient) -> None:
-    """The NL builder works with the LLM disabled and says which path ran."""
-    status = client.get("/api/builder/status").json()
-    assert "llm_available" in status
-    r = client.post(
-        "/api/builder/natural-language",
-        json={
-            "text": "night attack on a fuel depot, 12 drones, 3 decoy birds, light fog, "
-            "radar fails after 2 minutes",
-            "use_llm": False,
-        },
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["path"] == "rule_based"
-    assert body["sanity_ok"] is True
-    assert body["scenario"]["schema_version"] == SCHEMA_VERSION
-    assert "night" in body["scenario"]["tags"]
+def test_generate_offers_terrain_time_of_day_and_composition(client: TestClient) -> None:
+    """Rural and urban each offer day/night and single/swarm, on demand.
+
+    The statement asks for day/night, urban/rural, single-drone and swarm
+    coverage; the two shipped scenarios cover the entry points and the
+    generator covers every combination.
+    """
+    for terrain in ("rural", "urban"):
+        for time_of_day in ("day", "dusk", "night"):
+            for composition, expected in (("single", 1), ("swarm", 5)):
+                r = client.post(
+                    "/api/scenarios/generate",
+                    json={
+                        "seed": 2024,
+                        "terrain_preset": terrain,
+                        "time_of_day": time_of_day,
+                        "threat_composition": composition,
+                        "persist": False,
+                    },
+                )
+                assert r.status_code == 200, r.text
+                scenario = r.json()
+                assert scenario["terrain"]["preset"] == terrain
+                assert scenario["environment"]["time_of_day"] == time_of_day
+                hostiles = sum(w["count"] for w in scenario["threats"])
+                if composition == "single":
+                    assert hostiles == 1
+                else:
+                    assert hostiles >= expected
 
 
 def test_instructor_rule_sets_and_exercise(client: TestClient) -> None:

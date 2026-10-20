@@ -1,7 +1,6 @@
 import { NavLink, Route, Routes } from "react-router-dom"
 import { useSimStore } from "@/state/simStore"
 import LibraryPage from "@/pages/LibraryPage"
-import BuilderPage from "@/pages/BuilderPage"
 import BriefingPage from "@/pages/BriefingPage"
 import SimPage from "@/pages/SimPage"
 import AARPage from "@/pages/AARPage"
@@ -11,7 +10,6 @@ import HealthPill from "@/components/HealthPill"
 
 const NAV = [
   { to: "/", label: "Library", end: true },
-  { to: "/builder", label: "Builder" },
   { to: "/dashboard", label: "Dashboard" },
   { to: "/aar", label: "AAR" },
   { to: "/instructor", label: "Instructor" },
@@ -54,7 +52,6 @@ export default function App(): JSX.Element {
       <main className="content">
         <Routes>
           <Route path="/" element={<LibraryPage />} />
-          <Route path="/builder" element={<BuilderPage />} />
           <Route path="/briefing/:scenarioId" element={<BriefingPage />} />
           <Route path="/sim/:scenarioId" element={<SimPage />} />
           <Route path="/aar" element={<AARPage />} />

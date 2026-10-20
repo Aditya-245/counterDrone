@@ -235,7 +235,7 @@ class Track:
         recency = math.exp(-self.misses / 6.0)
         precision = math.exp(-self.kf.position_sigma / 320.0)
         return float(
-            np.clip(0.35 * conf + 0.2 * diversity + 0.2 * recency + 0.25 * precision, 0, 1)
+            min(1.0, max(0.0, 0.35 * conf + 0.2 * diversity + 0.2 * recency + 0.25 * precision))
         )
 
     @property
@@ -263,7 +263,7 @@ class Track:
         best = max(self.class_evidence.items(), key=lambda kv: (kv[1], kv[0].value))
         confidence = best[1] / total
         label = self._biased_label(confidence)
-        return (best[0], label, float(np.clip(confidence, 0.0, 1.0)))
+        return (best[0], label, float(min(1.0, max(0.0, confidence))))
 
     def _biased_label(self, confidence: float) -> LabelType | None:
         """Apply the ambiguity skew to the accumulated label evidence."""
@@ -273,7 +273,7 @@ class Track:
         total = float(sum(skewed.values()))
         if total <= 1e-9:
             return None
-        skew = self.hint_bias * (1.0 - float(np.clip(confidence, 0.0, 1.0))) * total
+        skew = self.hint_bias * (1.0 - float(min(1.0, max(0.0, confidence)))) * total
         skewed[LabelType.HOSTILE] = skewed.get(LabelType.HOSTILE, 0.0) + skew
         return max(skewed.items(), key=lambda kv: (kv[1], kv[0].value))[0]
 
@@ -437,13 +437,22 @@ class TrackTracker:
             (t for t in self.state.tracks.values() if t.confirmed),
             key=lambda t: (-t.hits, t.born_t, t.id),
         )
+        # The pairwise distances are computed once; the merge loop then reads them
+        # instead of running a numpy norm per pair.
+        if len(confirmed) > 1:
+            positions = np.array([t.position for t in confirmed], dtype=np.float64)
+            deltas = positions[:, None, :] - positions[None, :, :]
+            distances = np.sqrt(np.einsum("ijk,ijk->ij", deltas, deltas))
+        else:
+            distances = np.zeros((len(confirmed), len(confirmed)), dtype=np.float64)
         for i, older in enumerate(confirmed):
             if older.id not in self.state.tracks:
                 continue
-            for younger in confirmed[i + 1 :]:
+            for j in range(i + 1, len(confirmed)):
+                younger = confirmed[j]
                 if younger.id not in self.state.tracks:
                     continue
-                d = float(np.linalg.norm(older.position - younger.position))
+                d = float(distances[i, j])
                 if d <= limit:
                     older.hits += younger.hits // 2
                     for sid in younger.sensors:
@@ -503,6 +512,14 @@ class TrackTracker:
         gate = self.config.gate_m2
         max_d = float(self.config.max_assoc_distance_m)
         floor = float(self.config.assoc_noise_floor_m) ** 2
+        # The measurements are gathered once so each track's gate test is a single
+        # vector operation instead of one per pair: with forty contacts and forty
+        # detections that is 1600 small numpy calls per tick otherwise.
+        if detections:
+            measurements = np.array([det.as_measurement() for det in detections], dtype=np.float64)
+        else:  # pragma: no cover - guarded by the caller
+            measurements = np.zeros((0, 3), dtype=np.float64)
+        max_d_sq = max_d * max_d
         for i, tid in enumerate(track_ids):
             trk = self.state.tracks[tid]
             p = trk.kf.position
@@ -511,13 +528,12 @@ class TrackTracker:
                 inv = np.linalg.inv(s)
             except np.linalg.LinAlgError:  # pragma: no cover
                 continue
-            for j, det in enumerate(detections):
-                d = det.as_measurement() - p
-                if float(np.dot(d, d)) > max_d * max_d:
-                    continue
-                m2 = float(d @ inv @ d)
-                if m2 <= gate:
-                    cost[i, j] = m2
+            diff = measurements - p
+            d2 = np.einsum("ij,ij->i", diff, diff)
+            m2 = np.einsum("ij,jk,ik->i", diff, inv, diff)
+            row = cost[i]
+            keep = (d2 <= max_d_sq) & (m2 <= gate)
+            row[keep] = m2[keep]
         if not np.isfinite(cost).any():
             return ([], list(range(len(detections))), track_ids)
 
@@ -544,7 +560,7 @@ class TrackTracker:
     def _correct(self, trk: Track, det: Detection, t: float) -> None:
         base = self.config.base_range_sigma_m
         sigma = base * (1.0 + det.range_m / 2500.0) / max(0.2, det.strength)
-        sigma = float(np.clip(sigma, 4.0, 400.0))
+        sigma = float(min(400.0, max(4.0, sigma)))
         trk.kf.update_position(
             det.as_measurement(), np.asarray(np.eye(3) * sigma * sigma, dtype=np.float64)
         )
@@ -583,7 +599,7 @@ class TrackTracker:
         kf = KalmanFilter(self.dt, cfg.position_process_noise)
         kf.x = np.concatenate([det.as_measurement(), np.zeros(3)])
         sigma = cfg.base_range_sigma_m * (1.0 + det.range_m / 2500.0)
-        sigma = float(np.clip(sigma, 8.0, 400.0))
+        sigma = float(min(400.0, max(8.0, sigma)))
         kf.P = np.diag([sigma**2, sigma**2, sigma**2, 36.0, 36.0, 36.0])
         if det.has_range_rate:
             los = det.as_measurement() / max(1e-6, float(np.linalg.norm(det.as_measurement())))

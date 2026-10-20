@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
@@ -18,6 +18,7 @@ from app.core.schemas import (
     OkResponse,
     Scenario,
     TerrainPreset,
+    TimeOfDay,
 )
 from app.db.models import ScenarioRow
 from app.db.session import session_scope
@@ -62,7 +63,12 @@ class ScenarioList(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    """Body for `POST /api/scenarios/generate`."""
+    """Body for `POST /api/scenarios/generate`.
+
+    `time_of_day` and `threat_composition` are the library's explicit options:
+    together with `terrain_preset` they cover rural/urban by day/night with a
+    single drone or a swarm.
+    """
 
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     difficulty: DifficultyVector | None = None
@@ -71,6 +77,8 @@ class GenerateRequest(BaseModel):
     duration_s: int | None = Field(default=None, ge=60, le=3600)
     trainee_id: str | None = None
     persist: bool = True
+    time_of_day: TimeOfDay | None = None
+    threat_composition: Literal["single", "swarm"] | None = None
 
 
 class ValidateResponse(BaseModel):

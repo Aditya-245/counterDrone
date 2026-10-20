@@ -1265,19 +1265,6 @@ class ForkResult(VersionedModel):
 # --------------------------------------------------------------------------- #
 
 
-class NlBuildResult(VersionedModel):
-    """Outcome of the natural-language scenario builder."""
-
-    scenario: Scenario | None
-    path: Literal["llm", "rule_based", "llm_fallback_rule_based"]
-    explanation: str
-    attempts: int
-    validation_errors: list[str] = Field(default_factory=list)
-    llm_available: bool = False
-    sanity_ok: bool = False
-    sanity_message: str = ""
-
-
 # --------------------------------------------------------------------------- #
 # API envelopes
 # --------------------------------------------------------------------------- #
@@ -1328,7 +1315,6 @@ __all__ = [
     "HabitExploit",
     "HabitFeatures",
     "LabelType",
-    "NlBuildResult",
     "OkResponse",
     "RedBrainReport",
     "ResolvedDifficulty",

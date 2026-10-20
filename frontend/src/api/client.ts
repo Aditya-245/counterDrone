@@ -6,7 +6,6 @@ import type {
   ForkResult,
   HealthResponse,
   LandscapeSpec,
-  NlBuildResult,
   RedBrainReport,
   ReplaySession,
   Scenario,
@@ -15,6 +14,7 @@ import type {
   SessionListItem,
   SessionRecord,
   StateFrame,
+  TimeOfDay,
   TraineeAction,
   TraineeDashboard,
   UserOut,
@@ -85,6 +85,8 @@ export const api = {
     duration_s?: number | null
     trainee_id?: string | null
     persist?: boolean
+    time_of_day?: TimeOfDay | null
+    threat_composition?: "single" | "swarm" | null
   }) =>
     request<Scenario>("/api/scenarios/generate", { method: "POST", body: JSON.stringify(body) }),
 
@@ -126,19 +128,6 @@ export const api = {
   users: (unitId?: string) => request<UserOut[]>(`/api/users${unitId ? `?unit_id=${unitId}` : ""}`),
   skills: (traineeId: string) => request<Record<string, unknown>>(`/api/users/${traineeId}/skills`),
   redbrain: (traineeId: string) => request<RedBrainReport>(`/api/users/${traineeId}/redbrain`),
-
-  // --- builder ---------------------------------------------------------
-  builderStatus: () => request<Record<string, unknown>>("/api/builder/status"),
-  buildFromText: (body: { text: string; seed?: number; use_llm?: boolean; persist?: boolean }) =>
-    request<NlBuildResult>("/api/builder/natural-language", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  saveTemplate: (scenario: Scenario) =>
-    request<Scenario>("/api/builder/template", {
-      method: "POST",
-      body: JSON.stringify({ scenario, persist: true }),
-    }),
 
   // --- instructor ------------------------------------------------------
   ruleSets: () =>

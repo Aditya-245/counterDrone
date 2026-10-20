@@ -333,6 +333,40 @@ def _make_events(
 # --------------------------------------------------------------------------- #
 
 
+def _apply_composition(diff: DifficultyVector, composition: str | None) -> DifficultyVector:
+    """Force "single" or "swarm" threat composition on a difficulty vector.
+
+    "single" is one drone on one bearing; "swarm" is several drones arriving in
+    overlapping waves. The rest of the difficulty is left alone.
+    """
+    if composition is None:
+        return diff
+    key = composition.strip().lower()
+    if key == "single":
+        return diff.model_copy(
+            update={"swarm_size": 0.0, "approach_axes": 0.0, "simultaneity": 0.0}
+        )
+    if key == "swarm":
+        return diff.model_copy(
+            update={
+                "swarm_size": max(0.55, diff.swarm_size),
+                "approach_axes": max(0.5, diff.approach_axes),
+            }
+        )
+    raise ValueError(f"unknown threat composition: {composition!r}")
+
+
+def _apply_time_of_day(diff: DifficultyVector, time_of_day: TimeOfDay | None) -> DifficultyVector:
+    """Force the lighting of a scenario; night also lowers visibility."""
+    if time_of_day is None:
+        return diff
+    if time_of_day is TimeOfDay.NIGHT:
+        return diff.model_copy(update={"night": 1.0})
+    if time_of_day is TimeOfDay.DUSK:
+        return diff.model_copy(update={"night": 0.5})
+    return diff.model_copy(update={"night": 0.0, "visibility": min(diff.visibility, 0.25)})
+
+
 def generate(
     seed: int,
     difficulty: DifficultyVector | None = None,
@@ -343,11 +377,20 @@ def generate(
     duration_s: int | None = None,
     source: str = "generated",
     behaviour_overrides: dict[str, object] | None = None,
+    time_of_day: TimeOfDay | None = None,
+    threat_composition: str | None = None,
 ) -> GeneratorResult:
-    """Generate a valid, oracle-solvable scenario from `seed` and `difficulty`."""
+    """Generate a valid, oracle-solvable scenario from `seed` and `difficulty`.
+
+    `time_of_day` and `threat_composition` are the explicit knobs the library
+    offers: picking "night, swarm" gives exactly that, rather than whatever the
+    difficulty vector happened to imply.
+    """
     rng = np.random.default_rng(int(seed) % (2**32))
     tags = list(tags or [])
     diff = difficulty or DifficultyVector()
+    diff = _apply_composition(diff, threat_composition)
+    diff = _apply_time_of_day(diff, time_of_day)
     resolved = resolve_difficulty(diff)
 
     preset = terrain_preset
@@ -373,7 +416,9 @@ def generate(
 
     night = resolved.is_night
     environment = EnvSpec(
-        time_of_day=TimeOfDay.NIGHT if night else TimeOfDay.DUSK,
+        time_of_day=time_of_day
+        if time_of_day is not None
+        else (TimeOfDay.NIGHT if night else TimeOfDay.DUSK),
         visibility_m=resolved.visibility_m,
         rain=float(np.clip(diff.visibility * 0.6 + float(rng.uniform(0.0, 0.2)), 0.0, 0.85)),
         wind_speed_mps=float(rng.uniform(1.0, 9.0)),

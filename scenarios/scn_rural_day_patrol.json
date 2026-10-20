@@ -1,20 +1,20 @@
 {
   "decoys": [],
-  "description": "Two near-identical contacts arrive together; one is a friendly UAV with a beacon, one is hostile. STRICT ROE is in force: nothing is engaged without a positive identification.",
+  "description": "One fast FPV crosses open farmland in daylight. The radar degrades two minutes in, so the trainee has to work with a weakened picture and a decoy in the same sector.",
   "difficulty": {
-    "ambiguity": 0.75,
-    "approach_axes": 0.25,
-    "decoy_ratio": 0.2,
+    "ambiguity": 0.0,
+    "approach_axes": 0.1,
+    "decoy_ratio": 0.0,
     "night": 0.0,
-    "roe_strictness": 0.95,
+    "roe_strictness": 0.2,
     "schema_version": 3,
-    "sensor_degradation_level": 0.4,
-    "simultaneity": 0.6,
-    "swarm_size": 0.35,
-    "time_pressure": 0.35,
-    "visibility": 0.65
+    "sensor_degradation_level": 0.0,
+    "simultaneity": 0.1,
+    "swarm_size": 0.05,
+    "time_pressure": 0.15,
+    "visibility": 0.7
   },
-  "duration_s": 600,
+  "duration_s": 420,
   "effectors": [
     {
       "ammunition": 8,
@@ -32,7 +32,7 @@
       "z": 6.0
     },
     {
-      "ammunition": 4,
+      "ammunition": 6,
       "base_success": 0.72,
       "cooldown_s": 11.0,
       "id": "eff_h",
@@ -50,24 +50,15 @@
   "environment": {
     "rain": 0.0,
     "schema_version": 3,
-    "time_of_day": "dusk",
-    "visibility_m": 7000.0,
-    "wind_heading_deg": 60.0,
+    "time_of_day": "day",
+    "visibility_m": 8000.0,
+    "wind_heading_deg": 270.0,
     "wind_speed_mps": 3.0
   },
-  "events": [
-    {
-      "description": "RF detector degraded; the friendly beacon drops out.",
-      "kind": "sensor_partial",
-      "params": {},
-      "schema_version": 3,
-      "t": 200.0,
-      "target": "rf1"
-    }
-  ],
-  "id": "scn_friendly_lookalike",
+  "events": [],
+  "id": "scn_rural_day_patrol",
   "instructor_locked": false,
-  "name": "Friendly look-alike trap (STRICT ROE)",
+  "name": "Rural day patrol",
   "roe": {
     "allowed_engage_labels": [
       "hostile"
@@ -76,17 +67,28 @@
     "friend_or_civil_warning_required": true,
     "late_engage_threshold_s": 20.0,
     "max_time_to_impact_s": 999.0,
-    "min_track_quality": 0.25,
-    "require_id_before_engage": true,
+    "min_track_quality": 0.15,
+    "require_id_before_engage": false,
     "require_warning_before_engage": true,
-    "rule_set": "STRICT",
+    "rule_set": "STANDARD",
     "schema_version": 3
   },
   "schema_version": 3,
-  "seed": 1010,
+  "seed": 1001,
   "sensors": [
     {
-      "degradations": [],
+      "degradations": [
+        {
+          "note": "radar transmitter at reduced power",
+          "state": "partial",
+          "t": 120.0
+        },
+        {
+          "note": "transmitter back to full power",
+          "state": "none",
+          "t": 260.0
+        }
+      ],
       "drift_mps": 0.0,
       "fov_deg": 360.0,
       "id": "radar1",
@@ -103,7 +105,13 @@
       "z": 18.0
     },
     {
-      "degradations": [],
+      "degradations": [
+        {
+          "note": "EO/IR gain reduced by glare",
+          "state": "partial",
+          "t": 180.0
+        }
+      ],
       "drift_mps": 0.0,
       "fov_deg": 70.0,
       "id": "eo1",
@@ -164,10 +172,11 @@
   "source": "shipped",
   "tags": [
     "rural",
-    "strict-roe",
-    "fratricide-risk",
-    "trap",
-    "friendly"
+    "day",
+    "single",
+    "sensor-degradation",
+    "decoy",
+    "intro"
   ],
   "terrain": {
     "buildings": [],
@@ -176,9 +185,9 @@
     "preset": "rural",
     "resolution": 192,
     "roughness": 0.45,
-    "scale_m": 80.0,
+    "scale_m": 70.0,
     "schema_version": 3,
-    "seed": 1010,
+    "seed": 1001,
     "size_m": 6000.0
   },
   "threats": [
@@ -187,41 +196,7 @@
       "behaviour": {
         "alignment_weight": 0.3,
         "cohesion_weight": 0.4,
-        "kind": "swarm",
-        "loiter_period_s": 48.0,
-        "loiter_radius_m": 140.0,
-        "min_clearance_m": 22.0,
-        "orbit_period_s": 55.0,
-        "orbit_radius_m": 190.0,
-        "schema_version": 3,
-        "separation_m": 16.0,
-        "speed_mps": 14.0,
-        "strike_bearing_deg": null,
-        "terminal_altitude_m": 60.0,
-        "terrain_following": false,
-        "waypoints": []
-      },
-      "count": 2,
-      "entity_class": "quad_small",
-      "formation": "line",
-      "hint_bias": 0.5,
-      "label": "hostile",
-      "name": "impostor",
-      "rf_active": true,
-      "schema_version": 3,
-      "spawn_bearing_deg": 100.0,
-      "spawn_jitter_deg": 8.0,
-      "spawn_offset_m": 0.0,
-      "spawn_points": [],
-      "spawn_t": 60.0,
-      "spawn_window_s": 10.0
-    },
-    {
-      "beacon_active": true,
-      "behaviour": {
-        "alignment_weight": 0.3,
-        "cohesion_weight": 0.4,
-        "kind": "loiter",
+        "kind": "terminal_dive",
         "loiter_period_s": 48.0,
         "loiter_radius_m": 140.0,
         "min_clearance_m": 22.0,
@@ -229,26 +204,26 @@
         "orbit_radius_m": 190.0,
         "schema_version": 3,
         "separation_m": 20.0,
-        "speed_mps": 8.0,
+        "speed_mps": 20.0,
         "strike_bearing_deg": null,
-        "terminal_altitude_m": 70.0,
+        "terminal_altitude_m": 30.0,
         "terrain_following": false,
         "waypoints": []
       },
-      "count": 2,
-      "entity_class": "friendly_uav",
-      "formation": "line",
-      "hint_bias": 0.35,
-      "label": "friendly",
-      "name": "friendly_lookalike",
+      "count": 1,
+      "entity_class": "fpv_fast",
+      "formation": "leader_follower",
+      "hint_bias": 0.0,
+      "label": "hostile",
+      "name": "solo",
       "rf_active": true,
       "schema_version": 3,
-      "spawn_bearing_deg": 105.0,
-      "spawn_jitter_deg": 8.0,
+      "spawn_bearing_deg": 45.0,
+      "spawn_jitter_deg": 0.0,
       "spawn_offset_m": 0.0,
       "spawn_points": [],
-      "spawn_t": 65.0,
-      "spawn_window_s": 10.0
+      "spawn_t": 20.0,
+      "spawn_window_s": 0.0
     }
   ]
 }

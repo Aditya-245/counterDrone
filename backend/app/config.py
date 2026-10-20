@@ -37,16 +37,6 @@ class Settings(BaseSettings):
     ws_heartbeat_seconds: float = 15.0
     ws_send_interval_ticks: int = 1
 
-    # --- optional local LLM (scenario builder only) ----------------------
-    ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b-instruct"
-    # Local CPU inference on a modest laptop runs a 1B model at roughly
-    # 5-15 tok/s; a 2048-token JSON answer can legitimately need over a
-    # minute. 30 s only ever produced timeouts that looked like format
-    # failures. Fail-fast on format (see _MAX_PROSE_RETRIES) instead.
-    ollama_timeout_s: float = 90.0
-    ollama_enabled: bool = True
-
     # --- red brain layer B (optional) ------------------------------------
     swarm_policy_path: Path = BACKEND_DIR / "data" / "swarm_ppo_policy.zip"
     swarm_policy_enabled: bool = True

@@ -17,13 +17,12 @@ minutes the first time; re-running only rewrites the synthetic rows.
 
 Open <http://127.0.0.1:5173>.
 
-> Talking point: nothing here calls the internet. The only optional outbound
-> request in the whole system is to a *local* Ollama for the natural-language
-> builder, and the Builder page says when it is unavailable.
+> Talking point: nothing here calls the internet. Every scenario comes from the
+> in-process procedural generator, so the whole system runs offline.
 
 ## 1. Library (60 s)
 
-The landing page is the scenario library: **8 shipped scenarios, 4 rural + 4
+The landing page is the scenario library: **two shipped scenarios, one rural and one
 city**, each with terrain preset, threat mix, difficulty, sensor set, and the
 **oracle target score**. Filter by category (`rural` / `city`) in the toolbar.
 
@@ -32,12 +31,17 @@ skill, and why that scenario is suggested. If the library has no generated
 scenario yet, use **Recommend** to have the generator build one (the ninth entry
 in the demo).
 
+The **Generate a scenario** panel at the bottom is the answer to "what else is
+there?": pick rural or urban, day, dusk or night, and a single drone or a swarm,
+and the generator builds that exercise on the spot — every combination the
+statement asks for, from one seed.
+
 > Talking point: the oracle target is what a scripted "good" policy scored on the
 > same seed — the difficulty is calibrated, not guessed.
 
 ## 2. Briefing (60 s)
 
-Pick a **city** scenario (for example *City Canyon Run*) and press **Begin**.
+Pick a **city** scenario (for example *Urban Night Swarm*) and press **Begin**.
 Read the brief aloud: threat waves, sensors and their coverage, the active rule
 set (`STRICT` / `STANDARD` / `PERMISSIVE`), visibility and time of day, and what
 "mission success" means for this run.
@@ -92,15 +96,15 @@ Export CSV, and the print stylesheet strips the chrome for a printable report.
 > *civil* is red, calling it *unknown* is amber, and the columns sum to the
 > sessions that were played.
 
-## 6. Instructor and Builder (1–2 min)
+## 6. Instructor and the generator (1–2 min)
 
 * **Instructor**: create a locked exercise — fix the seed so every trainee gets the
    identical scenario, pick the rule set, assign trainees, and export the exercise
   document with its `sha`.
-* **Builder**: describe a scenario in one sentence ("three FPV drones at dusk in a
-  rural valley, one decoy, radar degraded"). With a local Ollama the model drafts
-  it; without one the rule-based builder still produces a valid, playable scenario.
-  Validate and play it immediately.
+* **Generator**: back on the Library page, the **Generate a scenario** panel builds an
+  exercise from terrain, light and threat count - for example rural, night, swarm -
+  and opens its briefing. It is the same generator the seeder uses, so the
+  difficulty is calibrated and the scenario is oracle-solvable.
 
 ## Appendix: last verified run
 
@@ -109,7 +113,7 @@ Fill in when the demo is rehearsed on the final build:
 | Step | Result |
 | --- | --- |
 | `make check` | see README |
-| seed: 8 shipped + synthetic sessions | |
+| seed: 2 shipped + synthetic sessions | |
 | live session scored | session id, score |
 | AAR hash match | |
 | fork diverged | delta |

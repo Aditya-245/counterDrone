@@ -570,18 +570,6 @@ export interface ForkResult {
   newly_appended_actions: TraineeAction[]
 }
 
-export interface NlBuildResult {
-  schema_version: number
-  scenario: Scenario | null
-  path: "llm" | "rule_based" | "llm_fallback_rule_based"
-  explanation: string
-  attempts: number
-  validation_errors: string[]
-  llm_available: boolean
-  sanity_ok: boolean
-  sanity_message: string
-}
-
 export interface HabitExploit {
   habit: string
   description: string
@@ -643,7 +631,6 @@ export interface HealthResponse {
   tick_hz: number
   database: string
   db_reachable: boolean
-  llm_available: boolean
   learned_policy: { available: boolean; reason: string; path: string }
 }
 

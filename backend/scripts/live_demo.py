@@ -29,7 +29,7 @@ import httpx
 from websockets.asyncio.client import connect as ws_connect
 
 DEFAULT_BASE = "http://127.0.0.1:8000"
-DEFAULT_SCENARIO = "scn_city_canyon_run"
+DEFAULT_SCENARIO = "scn_urban_night_swarm"
 DEFAULT_DT = 1.0
 DEFAULT_MAX_WALL_S = 240.0
 DEFAULT_ENGAGE_TTP_S = 30.0

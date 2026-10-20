@@ -9,19 +9,19 @@ simulation; the browser owns only presentation and input.
 
 ```
 +------------------------------- browser (React 18 + Vite) -------------------------------+
-|  Library   Briefing   Sim   AAR   Dashboard   Builder   Instructor                        |
+|  Library   Briefing   Sim   AAR   Dashboard   Instructor                                |
 |    zustand: live frame + UI selection         TanStack Query: REST cache                  |
 |    @react-three/fiber scene (instanced meshes)   DOM HUD: scopes, tables, timeline        |
 +-----------------^-----------------------------------------------|-------------------------+
                   | WebSocket: state_frame snapshots               | trainee actions
 +-----------------|-----------------------------------------------v-------------------------+
 |                             FastAPI application (offline, localhost)                       |
-|  api/realtime.py (WS)   api/sessions.py   api/aar.py   api/scenarios.py   api/builder.py   |
+|  api/realtime.py (WS)   api/sessions.py   api/aar.py   api/scenarios.py                   |
 |  api/users.py  api/analytics.py  api/instructor.py  api/teams.py  api/health.py            |
 |  live.py: LiveSession registry        clock.py: one 10 Hz tick task for every live session |
 |------------------------------------------ core/ -------------------------------------------|
 |  engine.step()  sensors  tracking  roe  scoring  oracle  generator  skills  redbrain        |
-|  nl_builder (optional local Ollama)          view.build_state_frame (trainee-visible view)  |
+|  worldgen (the landscape the client draws)    view.build_state_frame (trainee-visible)   |
 |--------------------------------------------------------------------------------------------|
 |  db/ (SQLAlchemy 2 models + Alembic)              data/skygym.db (SQLite, WAL journal)       |
 +--------------------------------------------------------------------------------------------+
@@ -96,14 +96,13 @@ The after-action review replays a stored session at the canonical 10 Hz
 | `core/generator.py` | Procedural scenarios from a seed + `DifficultyVector` |
 | `core/skills.py` | Five per-trainee skills, logistic difficulty response, habits |
 | `core/redbrain.py` | Layer A (contextual bandit) tactic choice |
-| `core/nl_builder.py` | Prompt → `Scenario`, rule-based fallback, optional Ollama |
 | `core/session.py` | `play()`, `replay()`, `fork_session()`, oracle/bad-trainee drivers |
 | `live.py` + `clock.py` | Server-authoritative live sessions at 10 Hz |
 | `db/` | SQLAlchemy 2 models, repositories, Alembic migrations |
 
 ## Frontend
 
-- **Pages**: Library (`/`), Builder (`/builder`), Briefing (`/briefing/:id`), Sim
+- **Pages**: Library (`/`), Briefing (`/briefing/:id`), Sim
   (`/sim/:id`), AAR (`/aar/:id`), Dashboard (`/dashboard`), Instructor
   (`/instructor`).
 - **State**: zustand holds the live frame and UI selection (updated at 10 Hz);
@@ -163,10 +162,9 @@ Two rules keep the picture honest:
 
 ## Offline and safety boundaries
 
-- **Offline first.** The application never contacts the internet at runtime. The
-  only optional outbound call is to a *local* Ollama at `http://localhost:11434`
-  for the natural-language builder; when it is absent the rule-based builder takes
-  over and the UI says so (D007).
+- **Offline first.** The application never contacts the internet at runtime and
+  needs no local model either: every scenario comes from the in-process
+  procedural generator, so the whole product runs with the network switched off.
 - **Synthetic parameters only.** Effectors are abstract ("Effector-S soft-kill",
   "Effector-H hard-kill") with generic ranges; sensors are described by abstract
   detection parameters. There are no real weapon, radar, RF or jamming

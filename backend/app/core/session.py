@@ -204,11 +204,19 @@ def play(
 
 
 def oracle_result(
-    scenario: Scenario, dt: float = 0.2, weights: ScoreWeights | None = None
+    scenario: Scenario,
+    dt: float = 0.2,
+    weights: ScoreWeights | None = None,
+    collect_frames: bool = True,
 ) -> PlayResult:
-    """Play a scenario with the counterfactual oracle and return the result."""
+    """Play a scenario with the counterfactual oracle and return the result.
+
+    `collect_frames` builds the trainee-visible view every half second, which the
+    after-action replay needs but a caller that only wants the score does not -
+    the seeder turns it off, which is the difference between minutes and hours.
+    """
     adapter = OraclePolicyAdapter(oracle_policy(scenario))
-    return play(scenario, adapter, dt=dt, weights=weights, collect_frames=True)
+    return play(scenario, adapter, dt=dt, weights=weights, collect_frames=collect_frames)
 
 
 def bad_trainee_result(

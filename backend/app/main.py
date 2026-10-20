@@ -81,7 +81,6 @@ def create_app() -> FastAPI:
         "app.api.health": "health",
         "app.api.analytics": "analytics",
         "app.api.aar": "aar",
-        "app.api.builder": "builder",
         "app.api.instructor": "instructor",
         "app.api.scenarios": "scenarios",
         "app.api.sessions": "sessions",

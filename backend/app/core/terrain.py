@@ -83,19 +83,46 @@ class Terrain:
         hy = (self.height_at(x, y + step_m) - self.height_at(x, y - step_m)) / (2 * step_m)
         return (hx, hy)
 
+    def heights_at(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """Ground height for many points at once.
+
+        Same arithmetic as `height_at`, evaluated with NumPy so a whole ray can be
+        sampled in one call. The detector evaluates one ray per sensor per entity,
+        which is thousands of samples per tick, so this is the difference between a
+        tick that fits the budget and one that does not.
+        """
+        res = self.resolution
+        spacing = self.post_spacing_m
+        half = self.half_extent_m
+        gx = np.clip((xs + half) / spacing, 0.0, res - 1.0)
+        gy = np.clip((ys + half) / spacing, 0.0, res - 1.0)
+        i0 = np.minimum(np.floor(gx).astype(np.int64), res - 2)
+        j0 = np.minimum(np.floor(gy).astype(np.int64), res - 2)
+        fx = np.clip(gx - i0, 0.0, 1.0)
+        fy = np.clip(gy - j0, 0.0, 1.0)
+        h = self.heights
+        i1 = i0 + 1
+        j1 = j0 + 1
+        h00 = h[i0, j0]
+        h10 = h[i1, j0]
+        h01 = h[i0, j1]
+        h11 = h[i1, j1]
+        top = h00 + (h10 - h00) * fx
+        bottom = h01 + (h11 - h01) * fx
+        return top + (bottom - top) * fy
+
     def min_clearance_m(self, p0: Vec3, p1: Vec3, samples: int = 48) -> float:
         """Smallest gap between the straight line p0->p1 and the ground.
 
         A negative value means the line is buried in terrain.
         """
-        best = float("inf")
-        for i in range(samples + 1):
-            f = i / samples
-            x = p0.x + (p1.x - p0.x) * f
-            y = p0.y + (p1.y - p0.y) * f
-            z = p0.z + (p1.z - p0.z) * f
-            best = min(best, z - self.height_at(x, y))
-        return best
+        if samples <= 0:
+            return float("inf")
+        f = np.arange(samples + 1, dtype=np.float64) / samples
+        xs = p0.x + (p1.x - p0.x) * f
+        ys = p0.y + (p1.y - p0.y) * f
+        zs = p0.z + (p1.z - p0.z) * f
+        return float(np.min(zs - self.heights_at(xs, ys)))
 
     # ------------------------------------------------------------------ #
     # Buildings / line of sight
@@ -131,14 +158,11 @@ class Terrain:
         """Fraction of sampled points on the ray that are masked by terrain."""
         if samples <= 0:
             return 0.0
-        blocked = 0
-        for i in range(1, samples):
-            f = i / samples
-            x = p0.x + (p1.x - p0.x) * f
-            y = p0.y + (p1.y - p0.y) * f
-            z = p0.z + (p1.z - p0.z) * f
-            if z <= self.height_at(x, y):
-                blocked += 1
+        f = np.arange(samples + 1, dtype=np.float64) / samples
+        xs = p0.x + (p1.x - p0.x) * f
+        ys = p0.y + (p1.y - p0.y) * f
+        zs = p0.z + (p1.z - p0.z) * f
+        blocked = int(np.count_nonzero(zs[1:-1] <= self.heights_at(xs[1:-1], ys[1:-1])))
         return blocked / (samples - 1)
 
     # ------------------------------------------------------------------ #
@@ -320,16 +344,16 @@ def _flatten_site(
 
 
 def _load_heightmap(path: Path, resolution: int, max_height_m: float) -> np.ndarray:
-    """Import a PNG heightmap: grayscale resampled to the grid, scaled to metres."""
-    try:
-        from PIL import Image
-    except ImportError as exc:  # pragma: no cover - pillow is a hard requirement
-        raise RuntimeError("Pillow is required for heightmap import") from exc
+    """Heightmap import is not part of this build.
 
-    with Image.open(path) as img:
-        grey = img.convert("L").resize((resolution, resolution), Image.Resampling.BILINEAR)
-        data = np.asarray(grey, dtype=np.float64) / 255.0
-    return data * max_height_m
+    The procedural heightfield is the supported terrain; the field is kept so an
+    old scenario document that names a heightmap fails with a clear message
+    instead of an import error.
+    """
+    raise RuntimeError(
+        f"heightmap import is not supported in this build (scenario names {path}); "
+        "use a procedural terrain preset instead"
+    )
 
 
 def _segment_intersects_rect(p0: Vec3, p1: Vec3, rect: BuildingSpec) -> bool:
@@ -388,6 +412,31 @@ def terrain_fingerprint(heights: np.ndarray, buildings: tuple[BuildingSpec, ...]
     return h.hexdigest()
 
 
+#: Fingerprints of terrains that carry explicit buildings, keyed by the base
+#: fingerprint (which identifies the heightfield) and the building geometry.
+_ExplicitKey = tuple[str, tuple[tuple[float, float, float, float, float, float], ...]]
+_EXPLICIT_FINGERPRINTS: dict[_ExplicitKey, str] = {}
+
+
+def fingerprint_with_buildings(terrain: Terrain, buildings: tuple[BuildingSpec, ...]) -> str:
+    """Fingerprint of a heightfield plus explicit buildings, memoised.
+
+    The engine rebuilds the terrain every tick for a scenario that carries its own
+    buildings, and hashing the whole heightfield each time was half the cost of a
+    replay. The base fingerprint identifies the heightfield exactly, so the pair is
+    a safe cache key and the result is the same value every time.
+    """
+    key = (
+        terrain.fingerprint,
+        tuple((b.x, b.y, b.width_m, b.depth_m, b.height_m, b.rotation_deg) for b in buildings),
+    )
+    cached = _EXPLICIT_FINGERPRINTS.get(key)
+    if cached is None:
+        cached = terrain_fingerprint(terrain.heights, buildings)
+        _EXPLICIT_FINGERPRINTS[key] = cached
+    return cached
+
+
 def build_terrain(spec: TerrainSpec, seed: int | None = None) -> Terrain:
     """Build (or fetch from cache) the terrain described by `spec`."""
     building_count = len(spec.buildings)
@@ -411,17 +460,23 @@ def build_terrain(spec: TerrainSpec, seed: int | None = None) -> Terrain:
         scale_m=terrain.scale_m,
         heights=terrain.heights,
         buildings=tuple(explicit),
-        fingerprint=terrain_fingerprint(terrain.heights, tuple(explicit)),
+        fingerprint=fingerprint_with_buildings(terrain, tuple(explicit)),
     )
 
 
 def export_heightmap(terrain: Terrain, path: Path) -> Path:
-    """Write the heightfield out as an 8-bit PNG heightmap (round-trippable)."""
-    from PIL import Image
+    """Write the heightfield out as an 8-bit PGM heightmap (no image library needed).
 
+    PGM is a plain-text-header binary format that any image tool can read, so the
+    export needs no extra dependency.
+    """
     peak = max(1e-6, float(terrain.heights.max()))
     data = np.clip(terrain.heights / peak, 0.0, 1.0)
-    img = Image.fromarray((data * 255.0).astype(np.uint8), mode="L")
+    rows = data.shape[0]
+    cols = data.shape[1]
     path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(path)
+    header = f"P5\n{cols} {rows}\n255\n".encode("ascii")
+    with path.open("wb") as handle:
+        handle.write(header)
+        handle.write((data * 255.0).astype(np.uint8).tobytes())
     return path

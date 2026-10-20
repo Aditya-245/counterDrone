@@ -18,7 +18,6 @@ from app.core.schemas import (
     ForkRequest,
     ForkResult,
     LandscapeSpec,
-    NlBuildResult,
     ReplaySession,
     Scenario,
     ScoreBreakdown,
@@ -43,7 +42,6 @@ EXPORTS: dict[str, type[BaseModel]] = {
     "ForkRequest": ForkRequest,
     "ForkResult": ForkResult,
     "LandscapeSpec": LandscapeSpec,
-    "NlBuildResult": NlBuildResult,
 }
 
 

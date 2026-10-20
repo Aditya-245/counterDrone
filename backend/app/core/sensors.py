@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -42,6 +43,9 @@ from app.core.schemas import (
 from app.core.terrain import Terrain
 from app.core.tracking import Detection
 from app.core.world import EntityState, SensorRuntime, WorldState
+
+#: Samples along a sensor-to-target ray when measuring terrain masking.
+LOS_SAMPLES: Final = 32
 
 __all__ = [
     "AcousticSensor",
@@ -249,10 +253,33 @@ class Sensor(ABC):
         """Fraction of the sensor->target ray that is not masked by terrain."""
         sx, sy, sz = self.effective_position(world)
         origin = Vec3(x=sx, y=sy, z=sz + 2.0)
-        frac = self.ctx.terrain.occlusion_fraction(origin, entity.position, samples=32)
+        frac = self.ctx.terrain.occlusion_fraction(origin, entity.position, samples=LOS_SAMPLES)
         if frac <= 0.0:
             return 1.0
         return float(max(0.0, 1.0 - 0.95 * frac))
+
+    def los_factors(self, world: WorldState, entities: Sequence[EntityState]) -> list[float]:
+        """`los_factor` for many entities in one terrain pass.
+
+        The detector evaluates one ray per contact per sensor, so sampling them
+        together is the difference between fitting the tick budget and not. The
+        arithmetic matches `occlusion_fraction` sample for sample.
+        """
+        if not entities:
+            return []
+        sx, sy, sz = self.effective_position(world)
+        origin = Vec3(x=sx, y=sy, z=sz + 2.0)
+        f = np.arange(1, LOS_SAMPLES, dtype=np.float64) / LOS_SAMPLES
+        px = np.array([e.position.x for e in entities], dtype=np.float64)
+        py = np.array([e.position.y for e in entities], dtype=np.float64)
+        pz = np.array([e.position.z for e in entities], dtype=np.float64)
+        xs = origin.x + (px - origin.x)[:, None] * f[None, :]
+        ys = origin.y + (py - origin.y)[:, None] * f[None, :]
+        zs = origin.z + (pz - origin.z)[:, None] * f[None, :]
+        heights = self.ctx.terrain.heights_at(xs.ravel(), ys.ravel()).reshape(xs.shape)
+        blocked = np.count_nonzero(zs <= heights, axis=1)
+        frac = blocked / (LOS_SAMPLES - 1)
+        return [1.0 if fr <= 0.0 else float(max(0.0, 1.0 - 0.95 * fr)) for fr in frac]
 
     def clutter_factor(self) -> float:
         """Clutter multiplier: urban terrain and rain both make life harder."""
@@ -292,7 +319,13 @@ class RadarSensor(Sensor):
     #: Abstract radial speed below which a hovering target is much harder.
     min_speed_mps: float = 1.5
 
-    def _pd(self, entity: EntityState, world: WorldState, slant_range: float) -> float:
+    def _pd(
+        self,
+        entity: EntityState,
+        world: WorldState,
+        slant_range: float,
+        los: float | None = None,
+    ) -> float:
         params = params_for(entity.entity_class)
         rmax = self.effective_range(world)[1]
         if slant_range <= 1e-3:
@@ -307,14 +340,16 @@ class RadarSensor(Sensor):
             else 0.45 + 0.55 * (speed / max(1e-6, self.min_speed_mps))
         )
         base = 0.95 * rcs_term * range_term * speed_term
-        base *= self.los_factor(world, entity)
+        base *= self.los_factor(world, entity) if los is None else los
         base *= self.visibility_factor(self.visibility_exponent)
         state = self.effective_state(world)
         if state is DegradationState.PARTIAL:
             base *= 0.55
-        return float(np.clip(base, 0.0, 0.97))
+        return float(min(0.97, max(0.0, base)))
 
-    def detection_probability(self, entity: EntityState, world: WorldState) -> float:
+    def detection_probability(
+        self, entity: EntityState, world: WorldState, los: float | None = None
+    ) -> float:
         """Noise-free radar detection probability."""
         if not entity.active or entity.neutralised:
             return 0.0
@@ -327,7 +362,7 @@ class RadarSensor(Sensor):
             return 0.0
         if self.ctx.terrain.height_at(entity.position.x, entity.position.y) > entity.position.z:
             return 0.0
-        return self._pd(entity, world, slant)
+        return self._pd(entity, world, slant, los)
 
     def observe(self, world: WorldState, rng: RngLike) -> list[Detection]:
         """Radar scan: real detections plus clutter-driven false alarms."""
@@ -335,8 +370,11 @@ class RadarSensor(Sensor):
             return []
         out: list[Detection] = []
         sx, sy, sz = self.effective_position(world)
-        for ent in world.active_entities():
-            pd = self.detection_probability(ent, world)
+        active = world.active_entities()
+        # One terrain pass for every contact, instead of one per contact.
+        los = self.los_factors(world, active)
+        for ent, los_value in zip(active, los, strict=True):
+            pd = self.detection_probability(ent, world, los_value)
             if pd <= 0.0:
                 continue
             if float(rng.random()) >= pd:
@@ -474,7 +512,9 @@ class EoIrSensor(Sensor):
             return 0.58
         return 1.0
 
-    def detection_probability(self, entity: EntityState, world: WorldState) -> float:
+    def detection_probability(
+        self, entity: EntityState, world: WorldState, los: float | None = None
+    ) -> float:
         """Noise-free EO/IR detection probability."""
         if not entity.active or entity.neutralised:
             return 0.0
@@ -491,7 +531,7 @@ class EoIrSensor(Sensor):
             return 0.0
         pd = 0.95 * (angular / self.angular_threshold_rad)
         pd *= self._light_factor()
-        pd *= self.los_factor(world, entity)
+        pd *= self.los_factor(world, entity) if los is None else los
         pd *= self.visibility_factor()
         if self.effective_state(world) is DegradationState.PARTIAL:
             pd *= 0.6
@@ -505,8 +545,11 @@ class EoIrSensor(Sensor):
         sx, sy, sz = self.effective_position(world)
         vis = self.visibility_factor()
         tod = self.ctx.environment.time_of_day
-        for ent in world.active_entities():
-            pd = self.detection_probability(ent, world)
+        active = world.active_entities()
+        # One terrain pass for every contact, instead of one per contact.
+        los = self.los_factors(world, active)
+        for ent, los_value in zip(active, los, strict=True):
+            pd = self.detection_probability(ent, world, los_value)
             if pd <= 0.0:
                 continue
             if float(rng.random()) >= pd:

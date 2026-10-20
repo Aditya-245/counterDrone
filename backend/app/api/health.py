@@ -26,7 +26,6 @@ class HealthResponse(BaseModel):
     tick_hz: int
     database: str
     db_reachable: bool
-    llm_available: bool
     learned_policy: dict[str, Any]
 
 
@@ -47,14 +46,6 @@ def health() -> HealthResponse:
     except Exception:  # pragma: no cover - only on a broken database
         reachable = False
 
-    llm_available = False
-    try:  # pragma: no cover - network probing is environment dependent
-        from app.core.nl_builder import ollama_available
-
-        llm_available = ollama_available()
-    except Exception:
-        llm_available = False
-
     return HealthResponse(
         status="ok" if reachable else "degraded",
         app=settings.app_name,
@@ -65,6 +56,5 @@ def health() -> HealthResponse:
         tick_hz=settings.tick_hz,
         database=str(settings.db_path),
         db_reachable=reachable,
-        llm_available=llm_available,
         learned_policy=describe_policy_availability(),
     )

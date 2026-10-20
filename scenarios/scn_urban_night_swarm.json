@@ -1,20 +1,55 @@
 {
-  "decoys": [],
-  "description": "A quad works down a street canyon between two rows of tower blocks. The radar loses it every time it drops behind a roof line, and the EO camera only gets a look in the cross-street gaps. Expect the track to fade in and out rather than arrive clean.",
+  "decoys": [
+    {
+      "beacon_active": false,
+      "behaviour": {
+        "alignment_weight": 0.3,
+        "cohesion_weight": 0.4,
+        "kind": "swarm",
+        "loiter_period_s": 48.0,
+        "loiter_radius_m": 140.0,
+        "min_clearance_m": 20.0,
+        "orbit_period_s": 55.0,
+        "orbit_radius_m": 190.0,
+        "schema_version": 3,
+        "separation_m": 12.0,
+        "speed_mps": 12.0,
+        "strike_bearing_deg": null,
+        "terminal_altitude_m": 35.0,
+        "terrain_following": false,
+        "waypoints": []
+      },
+      "count": 4,
+      "entity_class": "bird_flock",
+      "formation": "scatter",
+      "hint_bias": 0.55,
+      "label": "bird",
+      "name": "city flock",
+      "rf_active": false,
+      "schema_version": 3,
+      "spawn_bearing_deg": 320.0,
+      "spawn_jitter_deg": 40.0,
+      "spawn_offset_m": 0.0,
+      "spawn_points": [],
+      "spawn_t": 180.0,
+      "spawn_window_s": 90.0
+    }
+  ],
+  "description": "A six-drone swarm crosses a city at night in two overlapping waves. Buildings mask the low drones, the EO sensor degrades under the tower glare, and civilians are transiting the sector below.",
   "difficulty": {
-    "ambiguity": 0.25,
-    "approach_axes": 0.35,
-    "decoy_ratio": 0.0,
+    "ambiguity": 0.2,
+    "approach_axes": 0.25,
+    "decoy_ratio": 0.25,
     "night": 0.0,
     "roe_strictness": 0.3,
     "schema_version": 3,
-    "sensor_degradation_level": 0.2,
-    "simultaneity": 0.15,
-    "swarm_size": 0.1,
-    "time_pressure": 0.3,
-    "visibility": 0.6
+    "sensor_degradation_level": 0.1,
+    "simultaneity": 0.5,
+    "swarm_size": 0.6,
+    "time_pressure": 0.45,
+    "visibility": 0.65
   },
-  "duration_s": 480,
+  "duration_s": 600,
   "effectors": [
     {
       "ammunition": 12,
@@ -50,15 +85,15 @@
   "environment": {
     "rain": 0.0,
     "schema_version": 3,
-    "time_of_day": "day",
-    "visibility_m": 6000.0,
-    "wind_heading_deg": 210.0,
-    "wind_speed_mps": 3.0
+    "time_of_day": "night",
+    "visibility_m": 5500.0,
+    "wind_heading_deg": 250.0,
+    "wind_speed_mps": 5.0
   },
   "events": [],
-  "id": "scn_city_canyon_run",
+  "id": "scn_urban_night_swarm",
   "instructor_locked": false,
-  "name": "Canyon run between tower blocks",
+  "name": "Urban night swarm",
   "roe": {
     "allowed_engage_labels": [
       "hostile"
@@ -74,7 +109,7 @@
     "schema_version": 3
   },
   "schema_version": 3,
-  "seed": 3001,
+  "seed": 3002,
   "sensors": [
     {
       "degradations": [],
@@ -94,7 +129,18 @@
       "z": 18.0
     },
     {
-      "degradations": [],
+      "degradations": [
+        {
+          "note": "EO/IR washed out by tower glare",
+          "state": "partial",
+          "t": 90.0
+        },
+        {
+          "note": "EO/IR recovered",
+          "state": "none",
+          "t": 210.0
+        }
+      ],
       "drift_mps": 0.0,
       "fov_deg": 70.0,
       "id": "eo1",
@@ -155,138 +201,115 @@
   "source": "shipped",
   "tags": [
     "city",
-    "street-canyon",
-    "occlusion",
-    "masking",
-    "quad"
+    "night",
+    "swarm",
+    "saturation",
+    "sensor-degradation",
+    "occlusion"
   ],
   "terrain": {
     "buildings": [
       {
-        "depth_m": 55.0,
-        "height_m": 34.0,
+        "depth_m": 70.0,
+        "height_m": 52.0,
         "schema_version": 3,
-        "width_m": 85.0,
-        "x": 700.0,
-        "y": 75.0
-      },
-      {
-        "depth_m": 55.0,
-        "height_m": 30.0,
-        "schema_version": 3,
-        "width_m": 85.0,
-        "x": 700.0,
-        "y": -75.0
+        "width_m": 75.0,
+        "x": 0.0,
+        "y": 950.0
       },
       {
         "depth_m": 60.0,
-        "height_m": 38.0,
-        "schema_version": 3,
-        "width_m": 90.0,
-        "x": 1000.0,
-        "y": 80.0
-      },
-      {
-        "depth_m": 60.0,
-        "height_m": 32.0,
-        "schema_version": 3,
-        "width_m": 90.0,
-        "x": 1000.0,
-        "y": -80.0
-      },
-      {
-        "depth_m": 52.0,
-        "height_m": 36.0,
-        "schema_version": 3,
-        "width_m": 88.0,
-        "x": 1350.0,
-        "y": 75.0
-      },
-      {
-        "depth_m": 52.0,
         "height_m": 40.0,
         "schema_version": 3,
-        "width_m": 88.0,
-        "x": 1350.0,
-        "y": -75.0
+        "width_m": 60.0,
+        "x": 230.0,
+        "y": 1060.0
       },
       {
-        "depth_m": 45.0,
-        "height_m": 24.0,
+        "depth_m": 60.0,
+        "height_m": 46.0,
         "schema_version": 3,
-        "width_m": 70.0,
-        "x": 900.0,
-        "y": 190.0
+        "width_m": 60.0,
+        "x": -230.0,
+        "y": 1060.0
       },
       {
-        "depth_m": 45.0,
-        "height_m": 26.0,
+        "depth_m": 65.0,
+        "height_m": 34.0,
         "schema_version": 3,
-        "width_m": 70.0,
-        "x": 900.0,
-        "y": -190.0
+        "width_m": 65.0,
+        "x": 430.0,
+        "y": 1220.0
       },
       {
-        "depth_m": 50.0,
-        "height_m": 28.0,
+        "depth_m": 65.0,
+        "height_m": 38.0,
+        "schema_version": 3,
+        "width_m": 65.0,
+        "x": -430.0,
+        "y": 1220.0
+      },
+      {
+        "depth_m": 55.0,
+        "height_m": 48.0,
         "schema_version": 3,
         "width_m": 75.0,
-        "x": 1400.0,
-        "y": 200.0
+        "x": 130.0,
+        "y": 1360.0
       },
       {
-        "depth_m": 50.0,
-        "height_m": 22.0,
+        "depth_m": 55.0,
+        "height_m": 42.0,
         "schema_version": 3,
         "width_m": 75.0,
-        "x": 1400.0,
-        "y": -200.0
+        "x": -130.0,
+        "y": 1360.0
       }
     ],
     "heightmap_path": null,
     "max_height_m": null,
     "preset": "urban",
     "resolution": 192,
-    "roughness": 0.65,
+    "roughness": 0.6,
     "scale_m": 80.0,
     "schema_version": 3,
-    "seed": 3001,
+    "seed": 3002,
     "size_m": 6000.0
   },
   "threats": [
     {
       "beacon_active": null,
       "behaviour": {
-        "alignment_weight": 0.3,
-        "cohesion_weight": 0.4,
-        "kind": "terminal_dive",
+        "alignment_weight": 0.8,
+        "cohesion_weight": 0.9,
+        "kind": "swarm",
         "loiter_period_s": 48.0,
         "loiter_radius_m": 140.0,
-        "min_clearance_m": 14.0,
+        "min_clearance_m": 20.0,
         "orbit_period_s": 55.0,
         "orbit_radius_m": 190.0,
         "schema_version": 3,
-        "separation_m": 20.0,
-        "speed_mps": 6.0,
+        "separation_m": 26.0,
+        "speed_mps": 10.0,
         "strike_bearing_deg": null,
-        "terminal_altitude_m": 38.0,
+        "terminal_altitude_m": 55.0,
         "terrain_following": true,
         "waypoints": []
       },
-      "count": 1,
+      "count": 6,
       "entity_class": "quad_small",
-      "formation": "line",
-      "hint_bias": 0.15,
+      "formation": "wedge",
+      "hint_bias": 0.1,
       "label": "hostile",
-      "name": "canyon runner",
+      "name": "rooftop swarm",
       "rf_active": true,
       "schema_version": 3,
-      "spawn_bearing_deg": 90.0,
-      "spawn_jitter_deg": 8.0,
+      "spawn_bearing_deg": 0.0,
+      "spawn_jitter_deg": 25.0,
       "spawn_offset_m": 0.0,
       "spawn_points": [],
-      "spawn_t": 40.0,
-      "spawn_window_s": 30.0
+      "spawn_t": 50.0,
+      "spawn_window_s": 45.0
     }
   ]
 }

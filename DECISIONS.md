@@ -520,6 +520,12 @@ lowered with `SKYGYM_DEMO_SESSIONS` for a quick smoke database. Every seeded ses
 **Reason.** Spec 9 (seed data) and the demo requirement that the dashboard be populated. Seeding cost is
 paid once and reported by the script.
 
+**Amended by D035.** The spec's sentence is read literally: *20 historical sessions
+for the demo unit*, spread across the six trainees (4/4/3/3/3/3), not 20 each. Six times
+the sessions was six times the seeding cost for a dashboard that looks no better, and the
+first `make seed` is the first thing a judge waits for. `SKYGYM_DEMO_SESSIONS` still sets a
+fixed count per trainee when a richer dashboard is wanted.
+
 ---
 
 ## D031 — Repeat `make seed` runs skip synthetic sessions that already exist
@@ -604,5 +610,31 @@ dependency, and nothing to break offline.
 
 **Reason.** A world that renders identically on a judge's laptop with no network, at one
 draw call per archetype, is worth more than a photoreal one that needs a download.
+
+---
+
+## D035 — The library is trimmed to the statement, and the generator carries the rest
+
+**Decision.** Two scenarios ship: `scn_rural_day_patrol` (day, single drone, a radar that
+degrades mid-run) and `scn_urban_night_swarm` (night, a six-drone swarm, a degraded EO
+sensor, civilians below). The natural-language builder, its page, its API and the Pillow
+heightmap import are gone. The Library page instead offers the generator directly: terrain
+(rural/urban) x light (day/dusk/night) x threat (single/swarm), which is every combination
+the statement asks for.
+
+**Alternatives.**
+- Keep the eight shipped scenarios - rejected: they duplicated decision problems, and the
+  statement asks for rural *and* urban coverage, not for a catalogue.
+- Keep the natural-language builder - rejected: it is not in the statement, it needed a
+  local model, and the procedural generator covers "procedurally generated threat scenarios"
+  in a way that is reproducible from a seed.
+- Ship every combination as a hand-authored scenario - rejected: 8 files to validate, keep
+  in step with the generator, and to explain; the generator produces the same thing on
+  demand.
+
+**Reason.** What is on disk is what the statement asks for, the rest is one click away, and
+the product reads as one focused tool instead of a toolbox. This supersedes D007 (the
+natural-language builder) and narrows D011 (the library size).
+
 
 

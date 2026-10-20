@@ -8,6 +8,7 @@ The only path from a `WorldState` to a client payload goes through
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import math
 import struct
@@ -232,6 +233,41 @@ class SensorRuntime:
         )
 
 
+def _copy_entity(entity: EntityState) -> EntityState:
+    """Copy one entity field by field.
+
+    `copy.deepcopy` on these dataclasses costs hundreds of calls per entity, and
+    the engine copies the world on every tick, so the copy is written out.
+    """
+    return EntityState(
+        id=entity.id,
+        entity_class=entity.entity_class,
+        label=entity.label,
+        wave_name=entity.wave_name,
+        member_index=entity.member_index,
+        position=Vec3(x=entity.position.x, y=entity.position.y, z=entity.position.z),
+        velocity=Vec3(x=entity.velocity.x, y=entity.velocity.y, z=entity.velocity.z),
+        spawn_t=entity.spawn_t,
+        rf_active=entity.rf_active,
+        beacon_active=entity.beacon_active,
+        hint_bias=entity.hint_bias,
+        neutralised=entity.neutralised,
+        neutralised_t=entity.neutralised_t,
+        neutralised_by=entity.neutralised_by,
+        active=entity.active,
+        reached_perimeter_t=entity.reached_perimeter_t,
+        ring_crossings=dict(entity.ring_crossings),
+        t_first_detectable=entity.t_first_detectable,
+        first_detected_by=entity.first_detected_by,
+        t_first_detection=entity.t_first_detection,
+        t_closest_approach=entity.t_closest_approach,
+        min_range_m=entity.min_range_m,
+        min_altitude_m=entity.min_altitude_m,
+        engaged_count=entity.engaged_count,
+        engaged_by=entity.engaged_by,
+    )
+
+
 @dataclass(slots=True)
 class WorldState:
     """Complete simulation state at one instant. Fully serialisable."""
@@ -339,8 +375,32 @@ class WorldState:
         return world
 
     def clone(self) -> WorldState:
-        """Deep copy, used by the counterfactual fork so replays stay independent."""
-        return WorldState.from_dict(self.to_dict())
+        """Deep copy, used by the counterfactual fork so replays stay independent.
+
+        The engine clones the world on every tick, so this copies the fields
+        directly instead of round-tripping the whole world through dictionaries.
+        The event log is copied by reference: events are immutable once appended,
+        and the clone only ever appends to its own list.
+        """
+        return WorldState(
+            scenario_id=self.scenario_id,
+            seed=self.seed,
+            t=self.t,
+            step=self.step,
+            dt=self.dt,
+            duration_s=self.duration_s,
+            entities={k: _copy_entity(v) for k, v in self.entities.items()},
+            effectors={k: copy.deepcopy(v) for k, v in self.effectors.items()},
+            sensors={k: copy.deepcopy(v) for k, v in self.sensors.items()},
+            events=list(self.events),
+            spawned_waves=set(self.spawned_waves),
+            fired_scenario_events=set(self.fired_scenario_events),
+            status=self.status,
+            paused=self.paused,
+            rng_draws=self.rng_draws,
+            engagement_log=[dict(e) for e in self.engagement_log],
+            counters=dict(self.counters),
+        )
 
     # ------------------------------------------------------------------ #
     # Hashing

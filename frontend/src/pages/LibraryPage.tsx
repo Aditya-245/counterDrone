@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
-import { Link } from "react-router-dom"
-import { useQuery } from "@tanstack/react-query"
+import { Link, useNavigate } from "react-router-dom"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/api/client"
 import { useSimStore } from "@/state/simStore"
 import { Panel, Spinner, ErrorNote } from "@/components/ui"
@@ -9,7 +9,21 @@ const SOURCES = [
   { key: "", label: "All" },
   { key: "shipped", label: "Shipped" },
   { key: "generated", label: "Generated" },
-  { key: "nlu", label: "From text" },
+]
+
+/** The statement asks for rural and urban, by day and night, single drone and swarm. */
+const TERRAINS = [
+  { key: "rural", label: "Rural" },
+  { key: "urban", label: "Urban" },
+]
+const TIMES = [
+  { key: "day", label: "Day" },
+  { key: "dusk", label: "Dusk" },
+  { key: "night", label: "Night" },
+]
+const COMPOSITIONS = [
+  { key: "single", label: "Single drone" },
+  { key: "swarm", label: "Swarm" },
 ]
 
 export default function LibraryPage(): JSX.Element {
@@ -17,11 +31,31 @@ export default function LibraryPage(): JSX.Element {
   const users = useQuery({ queryKey: ["users"], queryFn: () => api.users() })
   const [tag, setTag] = useState("")
   const [source, setSource] = useState("")
+  const [terrain, setTerrain] = useState("rural")
+  const [timeOfDay, setTimeOfDay] = useState("day")
+  const [composition, setComposition] = useState("single")
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scenarios", tag, source, traineeId],
     queryFn: () =>
       api.scenarios({ tag: tag || undefined, source: source || undefined, trainee_id: traineeId }),
+  })
+
+  const generate = useMutation({
+    mutationFn: () =>
+      api.generate({
+        terrain_preset: terrain,
+        time_of_day: timeOfDay as "day" | "dusk" | "night",
+        threat_composition: composition as "single" | "swarm",
+        trainee_id: traineeId,
+        persist: true,
+      }),
+    onSuccess: async (scenario) => {
+      await queryClient.invalidateQueries({ queryKey: ["scenarios"] })
+      navigate(`/briefing/${scenario.id}`)
+    },
   })
 
   const recommended = useMemo(() => (data?.items ?? []).filter((s) => s.recommended), [data])
@@ -72,9 +106,6 @@ export default function LibraryPage(): JSX.Element {
             ))}
           </select>
           <div style={{ flex: "1 1 auto" }} />
-          <Link className="btn primary" to="/builder">
-            Build one
-          </Link>
         </div>
 
         {isLoading && <Spinner label="Loading scenarios" />}
@@ -152,6 +183,58 @@ export default function LibraryPage(): JSX.Element {
             "Your recommendation appears once you have completed at least one session."}
         </div>
       )}
+
+      <Panel
+        title="Generate a scenario"
+        actions={
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending}
+          >
+            {generate.isPending ? "Generating…" : "Generate"}
+          </button>
+        }
+      >
+        <p className="faint" style={{ marginTop: 0 }}>
+          Every scenario is generated from its seed, so the same choice always gives the same
+          exercise. Pick the terrain, the light and how many drones are coming.
+        </p>
+        <div className="row wrap" style={{ gap: 12 }}>
+          <label className="field">
+            <span>Terrain</span>
+            <select value={terrain} onChange={(e) => setTerrain(e.target.value)}>
+              {TERRAINS.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Light</span>
+            <select value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)}>
+              {TIMES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Threat</span>
+            <select value={composition} onChange={(e) => setComposition(e.target.value)}>
+              {COMPOSITIONS.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {generate.isError && <ErrorNote message={(generate.error as Error).message} />}
+      </Panel>
     </div>
   )
 }

@@ -1,10 +1,10 @@
 """Verify every shipped scenario: schema, sanity, category tag and oracle score.
 
-The shipped library is eight scenarios split four `rural` and four `city`. This
-checks each one parses, passes the generator's sanity check, carries exactly one
-category tag, and is still solvable by the oracle policy above the 85-point floor
-the seeder enforces. A scenario that regresses here would otherwise only fail
-later, inside `make seed`.
+The shipped library is two scenarios, one `rural` and one `city`. This checks
+each one parses, passes the generator's sanity check, carries exactly one category
+tag, and is still solvable by the oracle policy above the 85-point floor the
+seeder enforces. A scenario that regresses here would otherwise only fail later,
+inside `make seed`.
 
     .venv/Scripts/python backend/scripts/verify_scenarios.py
 """
@@ -27,6 +27,9 @@ from app.core.session import oracle_result  # noqa: E402
 SCENARIO_DIR = REPO_ROOT / "scenarios"
 MIN_ORACLE = 85.0
 CATEGORIES = ("rural", "city")
+#: One scenario per category: the statement asks for rural and urban coverage, and
+#: the generator supplies every other combination on demand.
+EXPECTED_PER_CATEGORY = 1
 
 
 def category_of(scenario: Scenario) -> str | None:
@@ -76,8 +79,11 @@ def main() -> None:
 
     if failures:
         raise SystemExit("FAILED: " + ", ".join(failures))
-    if len(files) != 8:
-        raise SystemExit(f"expected 8 shipped scenarios, found {len(files)}")
+    for category in CATEGORIES:
+        if counts[category] != EXPECTED_PER_CATEGORY:
+            raise SystemExit(
+                f"expected {EXPECTED_PER_CATEGORY} {category} scenario(s), found {counts[category]}"
+            )
     print("all valid, sanity-clean, categorised and oracle-solvable")
 
 

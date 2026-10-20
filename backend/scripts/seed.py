@@ -35,9 +35,20 @@ DEMO_TRAINEES = [
     ("usr_eriksen", "Cpl Eriksen"),
     ("usr_farrow", "Lt Farrow"),
 ]
-#: Synthetic sessions per trainee (spec 9: a populated dashboard, "clearly
-#: flagged as synthetic"). Lower it for a quick smoke database.
-DEMO_SESSIONS_PER_TRAINEE = int(os.environ.get("SKYGYM_DEMO_SESSIONS", "20"))
+#: Synthetic sessions for the demo unit. The spec asks for "a demo unit with 6
+#: trainees and 20 historical sessions", so the unit total is 20 and it is spread
+#: across the trainees. `SKYGYM_DEMO_SESSIONS` overrides it with a fixed count per
+#: trainee for a richer dashboard; `SKYGYM_DEMO_UNIT_SESSIONS` moves the total.
+DEMO_UNIT_SESSIONS = int(os.environ.get("SKYGYM_DEMO_UNIT_SESSIONS", "20"))
+DEMO_SESSIONS_PER_TRAINEE = int(os.environ.get("SKYGYM_DEMO_SESSIONS", "0"))
+
+
+def sessions_for(index: int) -> int:
+    """How many synthetic sessions trainee `index` gets."""
+    if DEMO_SESSIONS_PER_TRAINEE > 0:
+        return DEMO_SESSIONS_PER_TRAINEE
+    base, extra = divmod(DEMO_UNIT_SESSIONS, len(DEMO_TRAINEES))
+    return base + (1 if index < extra else 0)
 
 
 def load_shipped() -> list[tuple[Scenario, float]]:
@@ -59,7 +70,7 @@ def load_shipped() -> list[tuple[Scenario, float]]:
         ok, message = sanity_check(scenario)
         if not ok:
             raise SystemExit(f"{path.name}: failed sanity check: {message}")
-        result = oracle_result(scenario, dt=0.2)
+        result = oracle_result(scenario, dt=0.2, collect_frames=False)
         if result.score.total < 85.0:
             raise SystemExit(
                 f"{path.name}: oracle only scores {result.score.total:.1f} (minimum 85)"
@@ -164,7 +175,8 @@ def seed_demo_unit(scenarios: list[tuple[Scenario, float]]) -> tuple[int, int]:
     for idx, (uid, _name) in enumerate(DEMO_TRAINEES):
         model = SkillModel(trainee_id=uid)
         created = 0
-        for n in range(DEMO_SESSIONS_PER_TRAINEE):
+        want = sessions_for(idx)
+        for n in range(want):
             session_id = f"seed_{uid}_{n + 1}"
             with session_scope() as db:
                 if db.get(SessionRow, session_id) is not None:
@@ -175,7 +187,7 @@ def seed_demo_unit(scenarios: list[tuple[Scenario, float]]) -> tuple[int, int]:
                 deep=True,
                 update={"difficulty": DifficultyVector.model_validate(difficulty.model_dump())},
             )
-            result = oracle_result(scenario, dt=0.2)
+            result = oracle_result(scenario, dt=0.2, collect_frames=False)
             # Synthetic noise so the demo cohort has a realistic spread.
             with session_scope() as db:
                 scenario_row = db.get(ScenarioRow, scenario.id)
@@ -208,14 +220,14 @@ def seed_demo_unit(scenarios: list[tuple[Scenario, float]]) -> tuple[int, int]:
         if created == 0:
             continue  # nothing was simulated, so leave the stored skills and bandit alone
         created_total += created
-        print(f"    {uid:<16} {created} simulated, {DEMO_SESSIONS_PER_TRAINEE - created} kept")
+        print(f"    {uid:<16} {created} simulated, {want - created} kept")
         brain = RedBrain(space=TacticSpace())
         habits = model.habits
         if habits is not None:
             brain.choose_tactic(habits, DifficultyVector(), seed=1000 + idx, forced_tactic=None)
         with session_scope() as db:
             save_bandit(db, uid, brain)
-    return created_total, len(DEMO_TRAINEES) * DEMO_SESSIONS_PER_TRAINEE
+    return created_total, sum(sessions_for(i) for i in range(len(DEMO_TRAINEES)))
 
 
 def next_difficulty_for_offset(model: SkillModel, n: int) -> tuple[DifficultyVector, str]:
@@ -257,8 +269,8 @@ def main() -> int:
         print(f"  retired   : {scenario_id} (and {sessions} session(s) on it)")
     created, expected = seed_demo_unit(scenarios)
     print(
-        f"  demo unit : {DEMO_UNIT_ID} with {len(DEMO_TRAINEES)} trainees x "
-        f"{DEMO_SESSIONS_PER_TRAINEE} synthetic sessions "
+        f"  demo unit : {DEMO_UNIT_ID} with {len(DEMO_TRAINEES)} trainees and "
+        f"{expected} synthetic sessions "
         f"({created} simulated now, {expected - created} already present)"
     )
     print("  done.")

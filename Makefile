@@ -1,7 +1,7 @@
 .PHONY: help install install-frontend install-ml dev dev-backend dev-frontend check \
         lint format format-check typecheck test test-front test-full check-all e2e \
         seed demo seed-db reset-db migrate migration schemas headless live-demo export-schema \
-        clean
+        verify-engine clean
 
 PY        ?= .venv/Scripts/python.exe
 PYTHON    ?= .venv/Scripts/python
@@ -34,6 +34,7 @@ help:
 	@echo "  make live-demo       play one live session over the API (needs 'make dev')"
 	@echo "  make schemas         export Pydantic JSON Schema into docs/schema/"
 	@echo "  make reset-db        drop and recreate the SQLite database"
+	@echo "  make verify-engine   prove the browser engine matches the server's"
 
 # ---------------------------------------------------------------- install ----
 install:
@@ -67,6 +68,7 @@ check-all:
 	$(MAKE) lint format-check typecheck
 	$(PYTHON) -m pytest backend/tests -q
 	$(MAKE) test-front
+	$(MAKE) verify-engine
 	@echo ""
 	@echo "==== make check-all: ALL GREEN ===="
 
@@ -132,6 +134,12 @@ schemas:
 	$(PYTHON) backend/scripts/export_schema.py
 
 export-schema: schemas
+
+# The browser runs the same app.core under Pyodide. This check proves the two
+# runtimes produce the identical state hash, which is what keeps the
+# determinism contract true now that the simulation is client-side.
+verify-engine:
+	cd $(NPMPKG) && $(NPM) run verify:engine
 
 headless:
 	$(PYTHON) backend/scripts/headless.py

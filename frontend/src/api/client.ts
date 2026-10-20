@@ -1,11 +1,14 @@
 /** Thin typed REST client. Every response is validated only by TypeScript; the
- *  server is the authority and rejects unknown `schema_version` values. */
+ *  server is the authority and rejects unknown `schema_version` values.
+ *
+ *  The simulation itself is *not* here: it runs in the browser (see
+ *  `src/engine`). This client covers the library, the records and the
+ *  analytics. */
 
 import type {
   DifficultyVector,
   ForkResult,
   HealthResponse,
-  LandscapeSpec,
   RedBrainReport,
   ReplaySession,
   Scenario,
@@ -70,7 +73,6 @@ export const api = {
     return request<ScenarioList>(`/api/scenarios${qs ? `?${qs}` : ""}`)
   },
   scenario: (id: string) => request<Scenario>(`/api/scenarios/${id}`),
-  landscape: (id: string) => request<LandscapeSpec>(`/api/scenarios/${id}/environment`),
   ruleSet: (id: string) => request<Record<string, unknown>>(`/api/scenarios/rulesets/${id}`),
   validateScenario: (scenario: Scenario) =>
     request<{ valid: boolean; errors: string[]; sanity_ok: boolean; sanity_message: string }>(
@@ -99,7 +101,16 @@ export const api = {
     ),
   liveSessions: () => request<SessionListItem[]>("/api/sessions/live"),
   session: (id: string) => request<SessionRecord>(`/api/sessions/${id}`),
-  submitResult: (id: string, body: { final_state_hash: string; aborted?: boolean }) =>
+  /**
+   * Hand the finished session to the server.
+   *
+   * The browser sends the action log it produced; the server re-runs the
+   * deterministic replay from that log and returns the authoritative score.
+   */
+  submitResult: (
+    id: string,
+    body: { actions: TraineeAction[]; final_state_hash: string; aborted?: boolean },
+  ) =>
     request<SessionRecord>(`/api/sessions/${id}/result`, {
       method: "POST",
       body: JSON.stringify(body),

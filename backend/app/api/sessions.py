@@ -1,12 +1,16 @@
-"""Session lifecycle: create, list, fetch, submit results, and the WebSocket."""
+"""Session lifecycle: create, list, fetch and submit results.
+
+The simulation runs in the browser (see `frontend/src/engine`), so the server
+never ticks a session and never holds a live runtime. What it does own is the
+**record**: the action log the browser produced, the authoritative score it
+recomputes from that log, and the skill and habit state derived from it.
+"""
 
 from __future__ import annotations
 
-import asyncio
-import time
+import math
 import uuid
-from dataclasses import dataclass, field
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -19,18 +23,19 @@ from app.core.schemas import (
     Scenario,
     ScoreBreakdown,
     SessionRecord,
-    StateFrame,
     TraineeAction,
 )
 from app.db.models import ScenarioRow, SessionRow, User
-from app.db.repositories import (
-    actions_for,
-    session_to_record,
-)
+from app.db.repositories import actions_for, save_habits, session_to_record, store_session
 from app.db.session import session_scope
-from app.live import LiveSession, get_live_session, live_registry
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+#: A session row with no end time is considered live for this long. The
+#: browser registers a session when it starts and closes it when it finishes,
+#: so the instructor panel is a view over the database rather than over an
+#: in-process registry.
+LIVE_WINDOW = timedelta(minutes=30)
 
 
 class CreateSessionRequest(BaseModel):
@@ -39,7 +44,6 @@ class CreateSessionRequest(BaseModel):
     scenario_id: str
     trainee_id: str
     allow_pause: bool = False
-    dt: float = Field(default=0.1, gt=0.0, le=1.0)
 
 
 class SessionListItem(BaseModel):
@@ -66,11 +70,12 @@ class SessionList(BaseModel):
 class SubmitResultRequest(BaseModel):
     """Body for `POST /api/sessions/{id}/result`.
 
-    The server never trusts the client's score: it re-runs the deterministic
-    replay from the seed and the stored action log and returns the authoritative
-    breakdown. The client-supplied values are accepted only as a cross-check.
+    The browser sends the action log it produced. The server never trusts a
+    score it did not compute: it re-runs the deterministic replay from the
+    seed and the action log and returns the authoritative breakdown.
     """
 
+    actions: list[TraineeAction] = Field(default_factory=list)
     score: ScoreBreakdown | None = None
     final_state_hash: str = ""
     aborted: bool = False
@@ -78,9 +83,11 @@ class SubmitResultRequest(BaseModel):
 
 @router.post("", response_model=SessionRecord, status_code=201)
 def create_session(body: CreateSessionRequest) -> SessionRecord:
-    """Register a new session row and register a live runtime for it."""
-    from app.core.engine import initial_state
+    """Register a session row.
 
+    The row exists before the browser starts playing, so the instructor can
+    see the session open, and so a session that is abandoned is still recorded.
+    """
     with session_scope() as db:
         scenario_row = db.get(ScenarioRow, body.scenario_id)
         if scenario_row is None:
@@ -99,23 +106,13 @@ def create_session(body: CreateSessionRequest) -> SessionRecord:
         )
         db.add(row)
         db.flush()
-
-    live = get_live_session(session_id)
-    live.start(
-        scenario,
-        dt=body.dt,
-        allow_pause=body.allow_pause,
-        trainee_id=body.trainee_id,
-        session_id=session_id,
-    )
-    _ = initial_state
-    return SessionRecord(
-        id=session_id,
-        scenario_id=scenario.id,
-        seed=scenario.seed,
-        trainee_id=body.trainee_id,
-        started_at=_now_iso(),
-    )
+        return SessionRecord(
+            id=session_id,
+            scenario_id=scenario.id,
+            seed=scenario.seed,
+            trainee_id=body.trainee_id,
+            started_at=_now_iso(),
+        )
 
 
 @router.get("", response_model=SessionList)
@@ -129,51 +126,27 @@ def list_sessions(
         if trainee_id:
             stmt = stmt.where(SessionRow.user_id == trainee_id)
         rows = list(db.execute(stmt.limit(limit)).scalars())
-        items = []
-        for row in rows:
-            scenario_row = db.get(ScenarioRow, row.scenario_id)
-            user = db.get(User, row.user_id)
-            items.append(
-                SessionListItem(
-                    id=row.id,
-                    scenario_id=row.scenario_id,
-                    scenario_name=scenario_row.name if scenario_row else row.scenario_id,
-                    trainee_id=row.user_id,
-                    trainee_name=user.display_name if user else row.user_id,
-                    seed=row.seed,
-                    started_at=row.started_at.isoformat() if row.started_at else "",
-                    total_score=row.total_score,
-                    synthetic=row.synthetic,
-                )
-            )
+        items = [_list_item(db, row) for row in rows]
     return SessionList(items=items, total=len(items))
 
 
 @router.get("/live", response_model=list[SessionListItem])
 def list_live() -> list[SessionListItem]:
-    """Sessions currently being played over a WebSocket."""
-    from app.api.scenarios import load_scenario_row
+    """Sessions that have started but not finished yet.
 
-    out: list[SessionListItem] = []
+    The browser owns the simulation, so "live" means "a row with no end time
+    inside the live window" rather than "a runtime in this process".
+    """
+    cutoff = datetime.now(UTC) - LIVE_WINDOW
     with session_scope() as db:
-        for live in live_registry.all():
-            scenario_row = db.get(ScenarioRow, live.scenario.id)
-            user = db.get(User, live.trainee_id)
-            out.append(
-                SessionListItem(
-                    id=live.session_id,
-                    scenario_id=live.scenario.id,
-                    scenario_name=scenario_row.name if scenario_row else live.scenario.id,
-                    trainee_id=live.trainee_id,
-                    trainee_name=user.display_name if user else live.trainee_id,
-                    seed=live.scenario.seed,
-                    started_at=_now_iso(),
-                    total_score=None,
-                    synthetic=False,
-                )
-            )
-    _ = load_scenario_row
-    return out
+        stmt = (
+            select(SessionRow)
+            .where(SessionRow.ended_at.is_(None))
+            .where(SessionRow.started_at >= cutoff)
+            .order_by(SessionRow.started_at.desc())
+        )
+        rows = list(db.execute(stmt).scalars())
+        return [_list_item(db, row) for row in rows]
 
 
 @router.get("/{session_id}", response_model=SessionRecord)
@@ -195,25 +168,18 @@ def read_actions(session_id: str) -> list[TraineeAction]:
         return actions_for(db, session_id)
 
 
-@router.get("/{session_id}/frame", response_model=StateFrame)
-def read_frame(session_id: str) -> StateFrame:
-    """The latest authoritative frame for a live session."""
-    live = live_registry.get(session_id)
-    if live is None:
-        raise not_found("live session", session_id)
-    return live.current_frame()
-
-
 @router.post("/{session_id}/result", response_model=SessionRecord)
 def submit_result(session_id: str, body: SubmitResultRequest) -> SessionRecord:
-    """Finish a session: replay it, score it, persist it, update skills."""
-    from app.core.session import RECORD_DT, play, replay
-    from app.core.skills import habits_from_actions
-    from app.db.repositories import save_habits, store_session
+    """Finish a session: replay it, score it, persist it, update the trainee.
 
-    live = live_registry.get(session_id)
-    if live is not None:
-        live.finish()
+    The replay is the server's own: it re-runs the deterministic engine from
+    the scenario seed and the action log the browser sent. The browser's own
+    hash is accepted as a cross-check and a mismatch is refused, so the score
+    the trainee sees and the score the instructor reads cannot drift apart.
+    """
+    from app.core.engine import NUM_SECTORS, sector_of_bearing
+    from app.core.session import RECORD_DT, replay_state
+    from app.core.skills import habits_from_actions
 
     with session_scope() as db:
         row = db.get(SessionRow, session_id)
@@ -224,11 +190,13 @@ def submit_result(session_id: str, body: SubmitResultRequest) -> SessionRecord:
         if scenario_row is None or user is None:
             raise unprocessable("session references a missing scenario or trainee")
         scenario = Scenario.model_validate(scenario_row.body_json)
-        actions = actions_for(db, session_id)
+        actions = sorted(body.actions, key=lambda a: a.t)
 
-    if not actions and live is not None:
-        actions = list(live.actions)
-    replayed = replay(scenario, actions, dt=RECORD_DT)
+    # One simulation, not two: the replay carries the score, the final state
+    # and the ghost, so nothing has to be recomputed.
+    outcome = replay_state(scenario, actions, dt=RECORD_DT)
+    replayed = outcome.session
+    state = outcome.state
     if body.final_state_hash and body.final_state_hash != replayed.final_state_hash:
         raise unprocessable(
             "client state hash does not match the deterministic replay",
@@ -236,21 +204,11 @@ def submit_result(session_id: str, body: SubmitResultRequest) -> SessionRecord:
             replay_hash=replayed.final_state_hash,
         )
 
-    result = play(
-        scenario,
-        _ReplayActions(actions),
-        dt=RECORD_DT,
-    )
-    score = result.score
-
-    import math
-
-    from app.core.engine import NUM_SECTORS
-    from app.core.view import sector_of_bearing
+    score = replayed.score
 
     sector_of_track: dict[str, int] = {}
-    for tid, eid in result.state.track_entities.items():
-        ent = result.state.world.entities.get(eid)
+    for tid, eid in state.track_entities.items():
+        ent = state.world.entities.get(eid)
         if ent is None:
             continue
         bearing = math.degrees(math.atan2(ent.position.y, ent.position.x)) % 360.0
@@ -282,7 +240,6 @@ def submit_result(session_id: str, body: SubmitResultRequest) -> SessionRecord:
         save_habits(db, user.id, session_id, habits)
         row.aborted = body.aborted
 
-    live_registry.drop(session_id)
     with session_scope() as db:
         row = db.get(SessionRow, session_id)
         assert row is not None
@@ -291,37 +248,37 @@ def submit_result(session_id: str, body: SubmitResultRequest) -> SessionRecord:
 
 @router.delete("/{session_id}", response_model=OkResponse)
 def abandon_session(session_id: str) -> OkResponse:
-    """Drop a live session and mark the stored row aborted."""
-    live_registry.drop(session_id)
+    """Mark the stored row aborted."""
     with session_scope() as db:
         row = db.get(SessionRow, session_id)
         if row is None:
             raise not_found("session", session_id)
         row.aborted = True
+        row.ended_at = datetime.now(UTC)
     return OkResponse(ok=True, message=f"session {session_id} abandoned")
 
 
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
+
+
+def _list_item(db: Any, row: SessionRow) -> SessionListItem:
+    """One instructor-panel row."""
+    scenario_row = db.get(ScenarioRow, row.scenario_id)
+    user = db.get(User, row.user_id)
+    return SessionListItem(
+        id=row.id,
+        scenario_id=row.scenario_id,
+        scenario_name=scenario_row.name if scenario_row else row.scenario_id,
+        trainee_id=row.user_id,
+        trainee_name=user.display_name if user else row.user_id,
+        seed=row.seed,
+        started_at=row.started_at.isoformat() if row.started_at else "",
+        total_score=row.total_score,
+        synthetic=row.synthetic,
+    )
+
+
 def _now_iso() -> str:
-    from datetime import datetime
-
     return datetime.now(UTC).isoformat()
-
-
-@dataclass(slots=True)
-class _ReplayActions:
-    """Adapts a stored action list to the `Policy` protocol."""
-
-    actions: list[TraineeAction] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.actions = sorted(self.actions, key=lambda a: a.t)
-
-    def act(self, state: Any, world: Any, t: float) -> list[TraineeAction]:
-        due = [a for a in self.actions if a.t <= t + 1e-9]
-        self.actions = [a for a in self.actions if a.t > t + 1e-9]
-        return due
-
-
-_ASYNCIO = asyncio
-_TIME = time
-_LIVE = LiveSession

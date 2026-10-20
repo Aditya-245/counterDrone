@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/api/client"
-import { interpolateTracks, openSessionSocket, type SessionSocket } from "@/api/socket"
-import type { ActionType, TraineeAction, TraineeCall } from "@/api/types"
+import type { ActionType, ReplaySession, TraineeAction, TraineeCall } from "@/api/types"
+import { openSessionEngine, type SessionEngine } from "@/engine/client"
+import { saveSession } from "@/engine/history"
+import { interpolateTracks } from "@/state/interpolate"
 import { useSimStore } from "@/state/simStore"
 import TacticalScene from "@/scene/TacticalScene"
 import AimOverlay from "@/hud/AimOverlay"
@@ -43,8 +45,10 @@ export default function SimPage(): JSX.Element {
   const frame = useSimStore((s) => s.frame)
   const status = useSimStore((s) => s.status)
 
-  const socketRef = useRef<SessionSocket | null>(null)
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const engineRef = useRef<SessionEngine | null>(null)
+  // The session id is minted by the server when the session is registered, so
+  // the instructor can see the session open while the trainee plays it.
+  const [sessionId, setSessionId] = useState("")
   const [eoAzimuth, setEoAzimuth] = useState(0)
   const [interp, setInterp] = useState(1)
   const users = useQuery({ queryKey: ["users"], queryFn: () => api.users() })
@@ -86,45 +90,96 @@ export default function SimPage(): JSX.Element {
   // a reticle over the next scenario.
   useEffect(() => resetAim, [])
 
-  // Create the session (and therefore the authoritative runtime) on mount.
+  // Tell the store which session this page is playing.
   useEffect(() => {
-    if (!scenario || sessionId) return
-    let cancelled = false
-    void api
-      .createSession({ scenario_id: scenario.id, trainee_id: traineeId })
-      .then((rec) => {
-        if (cancelled) return
-        setSessionId(rec.id)
-        useSimStore.getState().setSession(rec.id, scenario.id)
+    if (!scenario || !sessionId) return
+    useSimStore.getState().setSession(sessionId, scenario.id)
+  }, [scenario, sessionId])
+
+  /**
+   * Hand the finished session to the server.
+   *
+   * The action log is what the server needs: it re-runs the deterministic
+   * replay from that log and computes the authoritative score, so the number
+   * the trainee sees and the number the instructor reads cannot drift apart.
+   */
+  const record = useCallback(
+    async (id: string, replay: ReplaySession, outcome: unknown): Promise<void> => {
+      if (!scenario) return
+      const actions = replay.trainee_actions
+      await saveSession({
+        id,
+        traineeId,
+        scenarioId: scenario.id,
+        scenario,
+        actions,
+        replay,
+        outcome,
+        savedAt: Date.now(),
       })
-      .catch(() => undefined)
+      try {
+        await api.submitResult(id, {
+          actions,
+          final_state_hash: replay.final_state_hash,
+        })
+      } catch (error) {
+        setStatus("error", error instanceof Error ? error.message : String(error))
+      }
+    },
+    [scenario, traineeId, setStatus],
+  )
+
+  /**
+   * Register the session, then play it in the browser.
+   *
+   * The browser owns the simulation: it steps the engine at the canonical
+   * 10 Hz inside the worker and renders the frames it produces. The server
+   * only records the session, so the trainee can play with no server latency
+   * and no socket to lose.
+   */
+  useEffect(() => {
+    if (!scenario || !traineeId) return
+    let cancelled = false
+
+    void (async () => {
+      setStatus("loading", "starting the simulation engine")
+      let created: { id: string }
+      try {
+        created = await api.createSession({
+          scenario_id: scenario.id,
+          trainee_id: traineeId,
+        })
+      } catch (error) {
+        if (!cancelled) {
+          setStatus("error", error instanceof Error ? error.message : String(error))
+        }
+        return
+      }
+      if (cancelled) return
+      setSessionId(created.id)
+
+      const engine = openSessionEngine(scenario, created.id, {
+        onFrame: (f) => {
+          storeFrame(f)
+          setStatus("running")
+        },
+        onStatus: (s, note) => setStatus(s, note),
+        onError: (m) => setStatus("error", m),
+        onEnd: (f, replay, outcome) => {
+          storeFrame(f)
+          setStatus("finished")
+          void record(created.id, replay, outcome)
+        },
+      })
+      engineRef.current = engine
+    })()
+
     return () => {
       cancelled = true
+      engineRef.current?.close()
+      engineRef.current = null
     }
-  }, [scenario, sessionId, traineeId])
-
-  // Open the socket and close it when the page unmounts.
-  useEffect(() => {
-    if (!sessionId) return
-    const socket = openSessionSocket(sessionId, {
-      onFrame: (f) => {
-        storeFrame(f)
-        setStatus("open")
-      },
-      onStatus: (s) => setStatus(s),
-      onError: (m) => setStatus("error", m),
-      onEnd: (f) => {
-        storeFrame(f)
-        setStatus("closed")
-      },
-      onResumed: (f) => storeFrame(f),
-    })
-    socketRef.current = socket
-    return () => {
-      socket.close()
-      socketRef.current = null
-    }
-  }, [sessionId, storeFrame, setStatus])
+  }, [scenario, traineeId, record, storeFrame, setStatus])
 
   // Client-side interpolation between the last two 10 Hz frames.
   useEffect(() => {
@@ -152,7 +207,7 @@ export default function SimPage(): JSX.Element {
   )
 
   const send = useCallback((action: TraineeAction): void => {
-    socketRef.current?.send(action)
+    engineRef.current?.send(action)
   }, [])
 
   const actOnSelected = useCallback(
@@ -321,7 +376,7 @@ export default function SimPage(): JSX.Element {
           title="Mission"
           actions={
             <span
-              className={`badge ${status === "open" ? "ok" : status === "error" ? "crit" : "warn"}`}
+              className={`badge ${status === "running" ? "ok" : status === "error" ? "crit" : "warn"}`}
             >
               {status}
             </span>
@@ -409,7 +464,10 @@ export default function SimPage(): JSX.Element {
 
         <Panel title="Session">
           <div className="mono faint" style={{ fontSize: 11 }}>
-            {sessionId ?? "creating…"}
+            {sessionId || "starting…"}
+          </div>
+          <div className="hint" style={{ fontSize: 11, marginTop: 4 }}>
+            Played in this browser. The server stores the record.
           </div>
           <Link
             className="btn"
@@ -427,9 +485,9 @@ export default function SimPage(): JSX.Element {
             Briefing
           </button>
         </Panel>
-      </div>
 
-      <div className="bottom">
+        {/* The scopes live in the side column: one scrolling stack, so a scope
+            can never spill out of its panel and over the table below. */}
         <Panel title="Radar scope">
           <div className="scope">
             <RadarScope
@@ -441,6 +499,7 @@ export default function SimPage(): JSX.Element {
             />
           </div>
         </Panel>
+
         <Panel
           title="EO/IR camera"
           actions={
@@ -467,7 +526,7 @@ export default function SimPage(): JSX.Element {
         </Panel>
       </div>
 
-      <div style={{ gridColumn: "1 / -1" }}>
+      <div className="sim-tracks">
         <Panel title="Tracks">
           <TrackTable tracks={tracks} selectedId={selectedId} onSelect={select} />
         </Panel>

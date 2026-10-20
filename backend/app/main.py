@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,11 +29,21 @@ _settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialise storage, start the simulation clock, and shut down cleanly."""
-    from app.clock import run_session_clock
-    from app.db.session import init_db
+    """Initialise storage, refresh the library, and shut down cleanly.
 
+    The simulation itself runs in the browser (see `frontend/src/engine`), so
+    there is no server-side clock and no live runtime to keep alive: this
+    process owns the library, the records and the authoritative scores.
+    """
+    from app.db.bootstrap import ensure_library, refresh_oracle_scores
+    from app.db.session import init_db, prepare_runtime_db
+
+    # A serverless instance starts with an empty database; the snapshot the
+    # build produced is copied into place, and the library is seeded if there
+    # is no snapshot. Both are cheap, so they run before the first request.
+    prepare_runtime_db()
     init_db()
+    ensure_library()
     logger.info("SKYGYM started; database at %s", get_settings().db_url)
 
     from app.core.redbrain import describe_policy_availability
@@ -41,14 +52,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Red Brain Layer B learned policy: %s", state)
     app.state.redbrain_policy = state
 
-    clock = asyncio.create_task(run_session_clock())
-    app.state.clock_task = clock
+    oracle_task = asyncio.create_task(refresh_oracle_scores())
+    app.state.oracle_task = oracle_task
     try:
         yield
     finally:
-        clock.cancel()
+        oracle_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
-            await clock
+            await oracle_task
 
 
 def create_app() -> FastAPI:
@@ -85,8 +96,6 @@ def create_app() -> FastAPI:
         "app.api.scenarios": "scenarios",
         "app.api.sessions": "sessions",
         "app.api.users": "users",
-        "app.api.realtime": "realtime",
-        "app.api.teams": "teams",
     }
     import importlib
 
@@ -105,10 +114,21 @@ def create_app() -> FastAPI:
 
 
 def _mount_frontend(app: FastAPI) -> None:
-    """Serve the built frontend when `frontend/dist` exists (production)."""
+    """Serve the built frontend when `frontend/dist` exists (production).
+
+    The catch-all also serves the browser's static assets: the vendored
+    Pyodide runtime (`/pyodide`) and the Python core manifest (`/pyapp`), both
+    of which Vite copies into `dist` from `frontend/public`.
+    """
     dist: Path = _settings.frontend_dist
     if not (_settings.serve_frontend and dist.is_dir()):
         return
+
+    # The browser compiles the simulation's wasm module with
+    # `WebAssembly.instantiateStreaming`, which refuses a response that is not
+    # served as `application/wasm`.
+    mimetypes.add_type("application/wasm", ".wasm")
+    mimetypes.add_type("application/octet-stream", ".whl")
 
     assets = dist / "assets"
     if assets.is_dir():
@@ -116,7 +136,7 @@ def _mount_frontend(app: FastAPI) -> None:
 
     index = dist / "index.html"
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
     async def spa(full_path: str) -> JSONResponse | FileResponse:
         """Single-page-application fallback."""
         if full_path.startswith(("api/", "ws/")):

@@ -143,6 +143,9 @@ Vite 5, TypeScript 5.6 with `strict: true`, Vitest 2 + jsdom + React Testing Lib
 
 ## D009 — Server-authoritative 10 Hz WebSocket with client interpolation
 
+> **Superseded by D036.** The engine now runs in the browser at the same 10 Hz and
+> the same client-side interpolation applies; the WebSocket is gone.
+
 **Decision.** The server steps the engine at a fixed 10 Hz and broadcasts a `state_frame` after every
 step. The client holds the last two frames and interpolates entity positions to render rate, so a
 40-dolly 3D scene stays smooth without the server running at 60 Hz. The server is authoritative:
@@ -244,6 +247,10 @@ be possible".
 ---
 
 ## D015 — WebSocket reconnect resumes from the server's authoritative step count
+
+> **Superseded by D036.** There is no socket to reconnect: the browser owns the
+> session, so a reload loses the session and the AAR falls back to the server's
+> replay of the stored action log.
 
 **Decision.** Each live session holds a server-side `SessionRuntime` with its step index and full
 state. The client sends `resume {last_step}` on reconnect; the server replies with the current
@@ -636,5 +643,39 @@ the statement asks for.
 the product reads as one focused tool instead of a toolbox. This supersedes D007 (the
 natural-language builder) and narrows D011 (the library size).
 
+---
 
+## D036 — The simulation runs in the browser, and the server keeps the score
 
+**Decision.** The engine runs in the browser, under Pyodide, on the *same* `app.core`
+source the server runs. The server no longer ticks a session: it owns the scenario
+library, the session records, the skills, the habit features and the Red Brain state, and
+it recomputes the authoritative score from the action log the browser sends. The
+live-session runtime, the WebSocket and the in-process registry are gone; "live" is now a
+session row with no end time.
+
+**Alternatives.**
+- *Keep the server authoritative* - rejected: the live runtime lived in a process-wide
+  dictionary, which the serverless deployment could not hold across instances. The code
+  had grown a `_adopt_session` fallback and a `max_session_seconds` cutoff purely to
+  survive that. Moving the simulation to the browser removes the problem instead of
+  working around it.
+- *Port the engine to TypeScript* - rejected: it duplicates the domain in a second
+  language and puts the determinism contract at risk, because the hash is BLAKE2b over
+  float64 and a cross-language port cannot promise bit-exactness.
+- *Run the engine in the browser via Pyodide* - chosen: it is the *same* Python, the same
+  NumPy and the same `hashlib`, so the state hash is bit-identical across the two
+  runtimes. `make verify-engine` proves it on every full check and fails the build if a
+  future NumPy or Pyodide release changes a rounding.
+
+**Consequences.**
+- The after-action review is captured while the session runs, so it is instant instead of
+  a server-side replay; the counterfactual fork costs one simulation rather than three.
+- The landscape is generated in the browser from the same seed the simulation used, so
+  what masks a radar ray is still exactly what the trainee sees.
+- The ground truth is now reachable from the trainee's browser while the session runs.
+  The server still recomputes the score from the action log, so a tampered *score* is
+  refused, but a trainee who reads the engine state can classify perfectly. That is the
+  price of a client-side simulation, and it is recorded here rather than hidden.
+- Cross-device continuity still works: the skills, the habits and the Red Brain state are
+  server-side and follow the trainee between browsers.

@@ -1,8 +1,13 @@
-"""P4 - REST contract tests, the WebSocket flow and persistence.
+"""P4 - REST contract tests and persistence.
 
 These run against a real SQLite file in a temp directory, through the actual
-FastAPI app, so they exercise routing, validation, the schema-version gate, the
-authoritative clock and the database writes.
+FastAPI app, so they exercise routing, validation, the schema-version gate and
+the database writes.
+
+The simulation itself runs in the browser, so the server never ticks a
+session. What the server owns is the record: it re-runs the deterministic
+replay from the action log the browser produced and returns the authoritative
+score.
 """
 
 from __future__ import annotations
@@ -16,7 +21,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.schemas import SCHEMA_VERSION, DifficultyVector, Scenario
-from app.live import live_registry
 
 
 @pytest.fixture()
@@ -44,7 +48,6 @@ def client(tmp_db: Path) -> Iterator[TestClient]:
         )
     with TestClient(app=_app()) as test_client:
         yield test_client
-    live_registry.clear()
 
 
 def _app() -> Any:
@@ -54,19 +57,6 @@ def _app() -> Any:
 
 
 SCENARIO_ID = "gen_004242"
-
-
-def _await_message(ws: Any, kind: str, *, limit: int = 500) -> dict[str, Any]:
-    """Read socket messages until one of `kind` arrives.
-
-    The pump interleaves `state_frame` snapshots with control replies, so a test
-    that waits for a reply has to drain the frames that come with it.
-    """
-    for _ in range(limit):
-        message = ws.receive_json()
-        if message["type"] == kind:
-            return message
-    raise AssertionError(f"no {kind!r} message within {limit} frames")
 
 
 # --------------------------------------------------------------------------- #
@@ -330,13 +320,20 @@ def test_analytics_contract(client: TestClient) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Session + WebSocket flow
+# Session flow
 # --------------------------------------------------------------------------- #
 
 
-def test_create_session_and_play_over_websocket(client: TestClient) -> None:
-    """A scripted client plays a session over the socket and the score is stored."""
-    from app.live import live_registry as registry
+def test_client_played_session_is_reproduced_and_scored(client: TestClient) -> None:
+    """A session played in the browser is reproduced exactly by the server.
+
+    The browser posts the action log it produced; the server re-runs the
+    deterministic replay from that log, checks the state hash matches and
+    stores the score it computed itself.
+    """
+    from app.core.session import RECORD_DT, oracle_result
+    from app.db.models import ScenarioRow
+    from app.db.session import session_scope
 
     created = client.post(
         "/api/sessions", json={"scenario_id": SCENARIO_ID, "trainee_id": "usr_test"}
@@ -346,55 +343,38 @@ def test_create_session_and_play_over_websocket(client: TestClient) -> None:
     session_id = session["id"]
     assert session["scenario_id"] == SCENARIO_ID
 
-    live = registry.get(session_id)
-    assert live is not None
+    # The session is open, so the instructor panel can see it.
+    live = client.get("/api/sessions/live").json()
+    assert any(row["id"] == session_id for row in live)
 
-    with client.websocket_connect(f"/ws/session/{session_id}") as ws:
-        first = ws.receive_json()
-        assert first["type"] == "state_frame"
-        assert first["frame"]["status"] in ("running", "finished")
+    # What the browser would have produced: an action log and a state hash.
+    with session_scope() as db:
+        scenario_row = db.get(ScenarioRow, SCENARIO_ID)
+        assert scenario_row is not None
+        scenario = Scenario.model_validate(scenario_row.body_json)
+    played = oracle_result(scenario, dt=RECORD_DT, collect_frames=False)
+    actions = [a.model_dump(mode="json") for a in played.actions]
 
-        # Drive the authoritative clock by hand so the test is not wall-clock
-        # bound. The reader task applies messages in order, so round-tripping a
-        # ping proves the action reached the session before the next tick.
-        for _ in range(60):
-            live.tick()
-        ws.send_json(
-            {
-                "type": "action",
-                "action": {
-                    "t": live.state.world.t,
-                    "type": "ACK_TRACK",
-                    "track_id": "T0001",
-                    "params": {},
-                },
-            }
-        )
-        ws.send_json({"type": "ping"})
-        _await_message(ws, "pong")
-        live.tick()
-        assert live.actions, "the server did not record the trainee action"
-
-        # Ask for a resume and confirm the action log comes back with the frame.
-        ws.send_json({"type": "resume", "last_step": 0})
-        resumed = _await_message(ws, "resumed")
-        assert any(a["track_id"] == "T0001" for a in resumed["actions"])
-
-        ws.send_json({"type": "finish"})
-        end = _await_message(ws, "end")
-        assert end["type"] == "end"
-
-    live.finish()
-    result = client.post(f"/api/sessions/{session_id}/result", json={"final_state_hash": ""})
+    result = client.post(
+        f"/api/sessions/{session_id}/result",
+        json={"actions": actions, "final_state_hash": played.final_state_hash},
+    )
     assert result.status_code == 200
     stored = result.json()
+    assert stored["final_state_hash"] == played.final_state_hash
     assert stored["score"]["total"] > 0
-    assert stored["final_state_hash"]
+    # The server's score is its own: it must equal the score the browser
+    # computed from the same log, because the replay is deterministic.
+    assert stored["score"]["total"] == pytest.approx(played.score.total, abs=1e-6)
 
     fetched = client.get(f"/api/sessions/{session_id}").json()
     assert fetched["score"]["total"] == stored["score"]["total"]
-    actions = client.get(f"/api/sessions/{session_id}/actions").json()
-    assert any(a["track_id"] == "T0001" for a in actions)
+    logged = client.get(f"/api/sessions/{session_id}/actions").json()
+    assert len(logged) == len(actions)
+
+    # Once the session is recorded it is no longer open.
+    still_live = client.get("/api/sessions/live").json()
+    assert not any(row["id"] == session_id for row in still_live)
 
 
 def test_result_rejects_a_forged_state_hash(client: TestClient) -> None:
@@ -409,20 +389,15 @@ def test_result_rejects_a_forged_state_hash(client: TestClient) -> None:
     assert bad.json()["detail"]["code"] == "unprocessable"
 
 
-def test_unknown_websocket_session_is_refused(client: TestClient) -> None:
-    """Connecting to a session that is not running is refused with 4404."""
+def test_there_is_no_server_side_session_socket(client: TestClient) -> None:
+    """The simulation runs in the browser, so the server owns no live socket."""
     from starlette.websockets import WebSocketDisconnect
 
-    with client.websocket_connect("/ws/session/ses_not_running") as ws:
-        refusal = ws.receive_json()
-        assert refusal["type"] == "error"
-        assert "not running" in refusal["detail"]
-        with pytest.raises(WebSocketDisconnect) as exc:
-            # Starlette's test client reports the close as a normal 1000; the
-            # server sends 4404 on the wire.
-            for _ in range(10):
-                ws.receive_json()
-    assert exc.value.code in (1000, 1006, 4404)
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("/ws/session/ses_not_running") as ws,
+    ):
+        ws.receive_json()
 
 
 def test_aar_replay_and_fork(client: TestClient) -> None:

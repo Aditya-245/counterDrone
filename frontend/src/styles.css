@@ -96,15 +96,16 @@ button {
   display: grid;
   grid-template-rows: auto 1fr;
   height: 100%;
-  min-width: 960px;
+  min-width: 0;
 }
 
 .topbar {
   display: flex;
   align-items: center;
-  gap: 22px;
-  padding: 0 20px;
-  height: 52px;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  padding: 8px 20px;
+  min-height: 52px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
 }
@@ -126,6 +127,8 @@ button {
 
 .nav {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 2px;
   margin-left: auto;
 }
@@ -149,6 +152,7 @@ button {
 .content {
   overflow: auto;
   padding: 20px 24px 32px;
+  min-width: 0;
 }
 
 .grid {
@@ -164,6 +168,13 @@ button {
 }
 .grid.cols-4 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* A panel that spans two columns of its grid. The class (rather than an
+   inline style) lets the responsive rules fold it back to one column. */
+.span-2 {
+  grid-column: span 2;
+  min-width: 0;
 }
 
 /* ---------------------------------------------------------------- panels -- */
@@ -413,13 +424,14 @@ tbody tr:last-child td {
 .sim {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
-  grid-template-rows: minmax(0, 1fr) 210px;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
 }
 .sim .scene {
-  grid-row: span 2;
+  grid-column: 1;
+  grid-row: 1;
   position: relative;
   min-height: 0;
   border-radius: var(--radius);
@@ -427,17 +439,28 @@ tbody tr:last-child td {
   border: 1px solid var(--border);
   background: #12160f;
 }
+/* One scrolling column of panels: nothing inside it can spill over the
+   scene or the track table. */
 .sim .side {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
 }
-.sim .bottom {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
+.sim .side .panel {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.sim-tracks {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -575,12 +598,22 @@ tbody tr:last-child td {
   color: var(--text-faint);
 }
 
+/* The scopes keep a fixed height and clip their content, so they can never
+   overflow the panel that holds them. */
 .scope,
 .camera {
   position: relative;
   width: 100%;
-  height: 100%;
+  height: 190px;
   min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+}
+.scope > svg,
+.camera > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .sensor-strip {
@@ -788,8 +821,85 @@ tbody tr:last-child td {
   }
 }
 
+/* ------------------------------------------------------------ responsive -- */
+
+/* Wide screens: the sim keeps its two columns. */
 @media (max-width: 1400px) {
   .sim {
     grid-template-columns: minmax(0, 1fr) 300px;
+  }
+}
+
+/* Laptop and tablet: the side column becomes a strip under the scene, and
+   every panel grid folds to two columns. */
+@media (max-width: 1100px) {
+  .app {
+    height: auto;
+    min-height: 100%;
+  }
+  .content {
+    overflow: visible;
+    padding: 16px 16px 28px;
+  }
+  .tagline {
+    display: none;
+  }
+  .grid.cols-4,
+  .grid.cols-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sim {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    height: auto;
+  }
+  .sim .scene {
+    grid-column: 1;
+    grid-row: 1;
+    height: 62vh;
+    min-height: 380px;
+  }
+  .sim .side {
+    grid-column: 1;
+    grid-row: 2;
+    overflow: visible;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .sim-tracks {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .span-2 {
+    grid-column: span 1 !important;
+  }
+}
+
+/* Phones and narrow windows: one column everywhere. */
+@media (max-width: 760px) {
+  .topbar {
+    padding: 8px 12px;
+  }
+  .nav a {
+    padding: 6px 8px;
+  }
+  .content {
+    padding: 12px 10px 24px;
+  }
+  .grid.cols-4,
+  .grid.cols-3,
+  .grid.cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sim .side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .panel {
+    padding: 12px;
+  }
+  .sim .scene {
+    height: 52vh;
+    min-height: 320px;
   }
 }

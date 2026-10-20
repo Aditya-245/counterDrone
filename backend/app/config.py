@@ -6,6 +6,7 @@ app can run fully offline with zero configuration.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -14,6 +15,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_DIR.parent
+
+#: Vercel's function filesystem is read-only except ``/tmp``, and every
+#: instance gets its own copy of it. A serverless instance therefore keeps its
+#: database in ``/tmp`` and starts from the pre-seeded snapshot.
+SERVERLESS_DB_PATH = Path("/tmp/skygym.db")
+
+
+def default_db_path() -> Path:
+    """Where the database lives when ``SKYGYM_DB_PATH`` is not set.
+
+    A local run keeps the database next to the application; a Vercel instance
+    keeps it in ``/tmp``, which is the only writable path it has.
+    """
+    if os.environ.get("VERCEL"):
+        return SERVERLESS_DB_PATH
+    return BACKEND_DIR / "data" / "skygym.db"
 
 
 class Settings(BaseSettings):
@@ -25,8 +42,11 @@ class Settings(BaseSettings):
     version: str = "0.1.0"
 
     # --- storage ---------------------------------------------------------
-    db_path: Path = BACKEND_DIR / "data" / "skygym.db"
+    db_path: Path = Field(default_factory=default_db_path)
     db_url_override: str | None = None
+    # Pre-seeded database the serverless deployment copies into place on a
+    # cold start. Built by `backend/scripts/build_seed_snapshot.py`.
+    seed_snapshot_path: Path = BACKEND_DIR / "data" / "seed_snapshot.db"
 
     # --- simulation ------------------------------------------------------
     tick_hz: int = 10

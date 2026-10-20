@@ -1,15 +1,9 @@
-# SKYGYM backend runtime dependencies - fully pinned.
+# SKYGYM backend dependencies - fully pinned.
 # Install with:  .venv/Scripts/python -m pip install -r backend/requirements.txt
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-websockets==14.1
-python-multipart==0.0.20
-pydantic==2.10.4
-pydantic-settings==2.7.0
-SQLAlchemy==2.0.36
-alembic==1.14.0
-numpy==2.2.1
-scipy==1.15.0
+#
+# The runtime pins live in requirements-runtime.txt so the deployment target
+# can install just the runtime; this file adds the test/lint toolchain.
+-r requirements-runtime.txt
 
 # --- test / lint toolchain -----------------------------------------------------
 pytest==8.3.4

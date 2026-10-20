@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query"
 import { api } from "@/api/client"
 import { VERDICT_COLOURS, compassName, heatColour } from "@/api/format"
 import type { ForkResult, ReplaySession, Verdict } from "@/api/types"
+import { engine } from "@/engine/client"
+import { loadSession } from "@/engine/history"
 import { ErrorNote, Panel, Spinner } from "@/components/ui"
 import Timeline from "@/components/Timeline"
 
@@ -24,9 +26,30 @@ export default function AARPage(): JSX.Element {
     }
   }, [sessions.data, sessionId])
 
+  /**
+   * The replay comes from this browser when it is here.
+   *
+   * The browser played the session, so it captured the frames, the ghost and
+   * the score as it went: the after-action review is instant and works
+   * offline. A session played elsewhere falls back to the server's replay.
+   */
   const replay = useQuery({
     queryKey: ["aar", sessionId],
-    queryFn: () => api.aar(sessionId),
+    queryFn: async () => {
+      const local = await loadSession(sessionId)
+      if (local) return local.replay
+      // The browser may still be handing the session over: the engine keeps
+      // the capture in memory for a moment after the page that played it goes
+      // away. Waiting for it beats replaying the whole session on the server.
+      if (engine.getSessionId() === sessionId) {
+        for (let attempt = 0; attempt < 80; attempt += 1) {
+          const live = engine.getReplay()
+          if (live && live.session_id === sessionId) return live
+          await new Promise((resolve) => setTimeout(resolve, 250))
+        }
+      }
+      return api.aar(sessionId)
+    },
     enabled: sessionId.length > 0,
   })
 
@@ -47,17 +70,46 @@ export default function AARPage(): JSX.Element {
     )
   }, [data, filter])
 
+  /**
+   * Fork the session from the playhead.
+   *
+   * When this browser played the session, the fork is simulated here: the
+   * original run and the ghost are already known, so only the fork itself has
+   * to be re-simulated. Otherwise the server does it.
+   */
   const runFork = async (t: number): Promise<void> => {
     if (!sessionId) return
     setForkBusy(true)
+    setFork(null)
     try {
-      const result = await api.fork({
-        session_id: sessionId,
-        fork_t: t,
-        replace_all_from: true,
-        follow_with_ghost: true,
-      } as never)
-      setFork(result)
+      const local = await loadSession(sessionId)
+      if (local) {
+        const result = await engine.fork(
+          local.scenario,
+          local.actions,
+          local.replay.ghost_actions,
+          {
+            session_id: sessionId,
+            fork_t: t,
+            replace_all_from: true,
+            follow_with_ghost: true,
+          },
+          {
+            hash: local.replay.final_state_hash,
+            score: local.replay.score,
+            outcome: local.outcome,
+          },
+        )
+        setFork(result)
+      } else {
+        const result = await api.fork({
+          session_id: sessionId,
+          fork_t: t,
+          replace_all_from: true,
+          follow_with_ghost: true,
+        } as never)
+        setFork(result)
+      }
     } catch {
       setFork(null)
     } finally {
@@ -147,7 +199,7 @@ export default function AARPage(): JSX.Element {
             </div>
           </div>
         ))}
-        <div className="panel" style={{ gridColumn: "span 2" }}>
+        <div className="panel span-2">
           {score.capped ? (
             <div className="error">Score capped at 60 — {score.cap_reason}</div>
           ) : (

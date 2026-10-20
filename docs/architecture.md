@@ -2,8 +2,13 @@
 
 SKYGYM is a **decision-quality gym**, not a shooting game. A browser-based desktop
 simulator puts a trainee in front of abstract sensors, a track table and a rules of
-engagement (ROE) tree, and scores the *decisions* they make. The server owns the
-simulation; the browser owns only presentation and input.
+engagement (ROE) tree, and scores the *decisions* they make.
+
+**The browser owns the simulation.** The server owns the library, the records and
+the authoritative score. That split is the whole point of the design: the
+simulation is a pure, deterministic function of `(scenario seed, trainee action
+log)`, so it can run anywhere - and the one place it must *not* run is next to
+the trainee, because the score has to be the server's.
 
 ## At a glance
 
@@ -12,13 +17,13 @@ simulation; the browser owns only presentation and input.
 |  Library   Briefing   Sim   AAR   Dashboard   Instructor                                |
 |    zustand: live frame + UI selection         TanStack Query: REST cache                  |
 |    @react-three/fiber scene (instanced meshes)   DOM HUD: scopes, tables, timeline        |
+|  engine/worker.ts: Pyodide + app.core, the 10 Hz tick loop, the AAR replay and the fork  |
 +-----------------^-----------------------------------------------|-------------------------+
-                  | WebSocket: state_frame snapshots               | trainee actions
+                  | REST: library, records, profiles              | action log + hash
 +-----------------|-----------------------------------------------v-------------------------+
 |                             FastAPI application (offline, localhost)                       |
-|  api/realtime.py (WS)   api/sessions.py   api/aar.py   api/scenarios.py                   |
-|  api/users.py  api/analytics.py  api/instructor.py  api/teams.py  api/health.py            |
-|  live.py: LiveSession registry        clock.py: one 10 Hz tick task for every live session |
+|  api/sessions.py   api/aar.py   api/scenarios.py   api/users.py                           |
+|  api/analytics.py  api/instructor.py  api/health.py                                       |
 |------------------------------------------ core/ -------------------------------------------|
 |  engine.step()  sensors  tracking  roe  scoring  oracle  generator  skills  redbrain        |
 |  worldgen (the landscape the client draws)    view.build_state_frame (trainee-visible)   |
@@ -26,6 +31,71 @@ simulation; the browser owns only presentation and input.
 |  db/ (SQLAlchemy 2 models + Alembic)              data/skygym.db (SQLite, WAL journal)       |
 +--------------------------------------------------------------------------------------------+
 ```
+
+The browser runs the **same** `core/` source the server runs, under Pyodide
+(CPython compiled to WebAssembly). `npm run sync:core` copies `backend/app/core`
+into `frontend/public/pyapp/manifest.json`; the worker installs it into
+Pyodide's virtual filesystem and imports it. One implementation, two runtimes -
+not a port.
+
+## The client-side engine
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| `frontend/src/engine/worker.ts` | worker | Boots Pyodide, installs the core, drives the 10 Hz tick loop |
+| `frontend/src/engine/py/skygym_engine.py` | in Pyodide | `start` / `tick` / `action` / `finish` / `landscape` / `fork` |
+| `frontend/src/engine/client.ts` | page | Promise-based API over `postMessage` |
+| `frontend/src/engine/history.ts` | page | The session the browser played, in IndexedDB |
+
+The vendored Pyodide runtime (the wasm module, the Python standard library and
+the numpy / pydantic / scipy wheels) lives in `frontend/public/pyodide/` and is
+served from the app's own origin: **no CDN, no network at runtime**.
+
+### Why the hashes still match
+
+The determinism contract says the same seed plus the same action log always
+produces the same `final_state_hash`. Moving the simulation from CPython to
+CPython-in-WebAssembly could have broken that - different NumPy, different
+`libm`, a different Python version. It does not, and the build proves it:
+
+```
+$ make verify-engine
+verify-engine: comparing 2 scenario(s) across runtimes
+  ok   scn_rural_day_patrol: 21aec1063e19a1e51b4c1bb34688170f
+  ok   scn_urban_night_swarm: 51acd230cd888815525535b0fc7f9e43
+verify-engine: the browser engine reproduces the server exactly
+```
+
+The check is part of `make check-all`: it plays every shipped scenario in the
+browser engine and compares the hash with the one the server's own core
+produces. If a future NumPy or Pyodide release changes a rounding, the build
+fails rather than silently producing a different score.
+
+### What the server still owns
+
+| Concern | Where it lives now |
+| --- | --- |
+| The scenario library | server (`api/scenarios.py`) - instructors can edit it |
+| The authoritative score | server - it re-runs the replay from the action log |
+| Skill ratings, habits, Red Brain state | server - so they follow the trainee across devices |
+| Session records and analytics | server |
+| The simulation, the AAR replay, the fork | browser |
+| The generated landscape | browser - from the same seed the simulation used |
+
+The after-action review is captured *while* the session runs, so the browser
+never re-simulates to show it. The counterfactual fork costs one simulation,
+because the browser already has both the original run and the ghost's
+decisions.
+
+### The ground-truth boundary
+
+`core/view.py` is still the single structural boundary between ground truth and
+the client. What changed is *where* it runs: it runs in the browser, so the
+trainee's browser holds the truth while they decide. That is a deliberate
+trade - it is the price of a client-side simulation, and it is why the server
+recomputes the score from the action log rather than accepting the browser's
+number. The AAR still reveals the truth afterwards, which is the point of an
+after-action review.
 
 ## The determinism contract
 
@@ -52,11 +122,18 @@ seed plus the same trainee action log must always produce the identical
 
 The after-action review replays a stored session at the canonical 10 Hz
 (`core.session.RECORD_DT`) and shows the reproduced hash next to the stored one
-(D027).
+(D027). The browser captures the replay as it plays, so the review is instant;
+the server's replay is the authority it is checked against.
+
+**Cross-runtime determinism.** The browser runs this same code under Pyodide,
+where the Python version, the NumPy version and the C library all differ from
+the server's. The hash still matches, bit for bit - `make verify-engine` proves
+it on every full check.
 
 ## The tick pipeline
 
-`step()` runs the same phases every tick, in this order:
+`step()` runs the same phases every tick, in this order. It runs in the
+browser's worker, at the canonical 10 Hz:
 
 1. **spawn** – threat waves whose `spawn_t` has arrived are instantiated
    deterministically (`_spawn_due_waves`).
@@ -96,9 +173,14 @@ The after-action review replays a stored session at the canonical 10 Hz
 | `core/generator.py` | Procedural scenarios from a seed + `DifficultyVector` |
 | `core/skills.py` | Five per-trainee skills, logistic difficulty response, habits |
 | `core/redbrain.py` | Layer A (contextual bandit) tactic choice |
-| `core/session.py` | `play()`, `replay()`, `fork_session()`, oracle/bad-trainee drivers |
-| `live.py` + `clock.py` | Server-authoritative live sessions at 10 Hz |
+| `core/session.py` | `play()`, `replay()`, `replay_state()`, `fork_session()`, oracle/bad-trainee drivers |
 | `db/` | SQLAlchemy 2 models, repositories, Alembic migrations |
+
+There is no server-side live runtime: `live.py`, `clock.py`, `api/realtime.py`
+and `api/teams.py` were removed when the simulation moved to the browser. A
+session row with no end time is what "live" means now - a view over the
+database rather than an in-process registry, which is what made the
+serverless deployment fragile in the first place.
 
 ## Frontend
 
@@ -169,6 +251,11 @@ Two rules keep the picture honest:
   "Effector-H hard-kill") with generic ranges; sensors are described by abstract
   detection parameters. There are no real weapon, radar, RF or jamming
   specifications anywhere in the code or data (D005).
-- **Ground truth stays server-side.** `view.build_state_frame()` is the single
-  boundary; grading data (`true_label`, entity ids) never reaches the browser until
-  the after-action review of a finished session.
+- **Ground truth has one boundary, and it is `view.build_state_frame()`.** Grading
+  data (`true_label`, entity ids) is projected out of the engine state in one
+  function, and everything the trainee is shown comes from that projection.
+  Since D036 the projection runs in the browser, so the engine's state - truth
+  included - is reachable from the page while the session runs. The server
+  still recomputes the score from the action log, so a tampered *score* is
+  refused; what is lost is the guarantee that a trainee cannot read the answer
+  key. That trade is recorded in D036 rather than hidden.

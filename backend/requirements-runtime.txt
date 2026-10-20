@@ -1,0 +1,17 @@
+# SKYGYM backend runtime dependencies - fully pinned.
+#
+# This is the single source of truth for the runtime pins. They are mirrored
+# in the root `pyproject.toml` (Vercel installs the project from there), and
+# `backend/scripts/check_pins.py` fails the build if the two ever drift.
+#
+# The test/lint toolchain lives in `requirements.txt` next to this file.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+websockets==14.1
+python-multipart==0.0.20
+pydantic==2.10.4
+pydantic-settings==2.7.0
+SQLAlchemy==2.0.36
+alembic==1.14.0
+numpy==2.2.1
+scipy==1.15.0

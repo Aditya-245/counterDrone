@@ -51,13 +51,17 @@ def sessions_for(index: int) -> int:
     return base + (1 if index < extra else 0)
 
 
-def load_shipped() -> list[tuple[Scenario, float]]:
+def load_shipped(with_oracle: bool = True) -> list[tuple[Scenario, float | None]]:
     """Read every `scenarios/*.json`, validate and sanity-check it.
 
     Returns `(scenario, oracle_score)` pairs. Raises on the first invalid file
     rather than inserting it (DECISIONS D011).
+
+    With `with_oracle=False` the oracle is not played, so the library loads in
+    milliseconds instead of seconds. The deployment uses that path when it has
+    to seed a database on a cold start and fills the scores in afterwards.
     """
-    out: list[tuple[Scenario, float]] = []
+    out: list[tuple[Scenario, float | None]] = []
     files = sorted(SCENARIO_DIR.glob("*.json"))
     if not files:
         raise SystemExit(f"no scenario files found in {SCENARIO_DIR}; run `make check` to see why")
@@ -70,6 +74,9 @@ def load_shipped() -> list[tuple[Scenario, float]]:
         ok, message = sanity_check(scenario)
         if not ok:
             raise SystemExit(f"{path.name}: failed sanity check: {message}")
+        if not with_oracle:
+            out.append((scenario, None))
+            continue
         result = oracle_result(scenario, dt=0.2, collect_frames=False)
         if result.score.total < 85.0:
             raise SystemExit(
@@ -79,7 +86,7 @@ def load_shipped() -> list[tuple[Scenario, float]]:
     return out
 
 
-def seed_scenarios(scenarios: list[tuple[Scenario, float]]) -> None:
+def seed_scenarios(scenarios: list[tuple[Scenario, float | None]]) -> None:
     """Upsert every shipped scenario."""
     with session_scope() as db:
         for scenario, score in scenarios:
@@ -94,7 +101,8 @@ def seed_scenarios(scenarios: list[tuple[Scenario, float]]) -> None:
             row.tags_json = scenario.tags
             row.body_json = scenario.model_dump(mode="json")
             row.source = "shipped"
-            row.oracle_score = round(score, 2)
+            if score is not None:
+                row.oracle_score = round(score, 2)
 
 
 def prune_scenarios(keep_ids: set[str]) -> list[tuple[str, int]]:
@@ -138,7 +146,10 @@ def prune_scenarios(keep_ids: set[str]) -> list[tuple[str, int]]:
     return retired
 
 
-def seed_demo_unit(scenarios: list[tuple[Scenario, float]]) -> tuple[int, int]:
+def seed_demo_unit(
+    scenarios: list[tuple[Scenario, float | None]],
+    simulate: bool = True,
+) -> tuple[int, int]:
     """Create the demo unit, six trainees and their synthetic session history.
 
     Synthetic sessions are only simulated when they are missing, so a second
@@ -146,6 +157,11 @@ def seed_demo_unit(scenarios: list[tuple[Scenario, float]]) -> tuple[int, int]:
     `(created, expected)` session counts. Filling a gap left by an interrupted
     first run can assign that one session a different difficulty, because the
     skill model is rebuilt from scratch each time.
+
+    With `simulate=False` only the unit and the roster are created. The
+    deployment uses that path when it seeds a database on a cold start: the
+    synthetic history costs minutes of simulation, which a cold start cannot
+    afford.
     """
     from app.core.redbrain import RedBrain, TacticSpace
     from app.core.skills import habits_from_actions
@@ -169,6 +185,11 @@ def seed_demo_unit(scenarios: list[tuple[Scenario, float]]) -> tuple[int, int]:
                     )
                 )
         db.flush()
+
+    if not simulate:
+        # The roster without the synthetic history: enough for the library and
+        # the instructor panel, and it costs no simulation time.
+        return 0, 0
 
     playable = [s for s, _ in scenarios]
     created_total = 0

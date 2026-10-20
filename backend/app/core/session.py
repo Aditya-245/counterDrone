@@ -243,6 +243,34 @@ def replay(
     Because the engine is deterministic this reproduces the original
     `final_state_hash` exactly when the same action log is supplied.
     """
+    return replay_state(scenario, actions, dt=dt, sample_s=sample_s, weights=weights).session
+
+
+@dataclass(slots=True)
+class ReplayOutcome:
+    """A replay and the engine state it ended in.
+
+    The state is kept so a caller that needs the final positions - the
+    per-track sector the habit model wants, for instance - does not have to
+    simulate the scenario a second time.
+    """
+
+    session: ReplaySession
+    state: EngineState
+
+
+def replay_state(
+    scenario: Scenario,
+    actions: list[TraineeAction],
+    dt: float = 0.1,
+    sample_s: float = REPLAY_SAMPLE_S,
+    weights: ScoreWeights | None = None,
+) -> ReplayOutcome:
+    """Re-run a session and return both the AAR payload and the final state.
+
+    Because the engine is deterministic this reproduces the original
+    `final_state_hash` exactly when the same action log is supplied.
+    """
     state = initial_state(scenario, dt=dt)
     rng = np.random.default_rng(int(scenario.seed))
     oracle = OraclePolicyAdapter(oracle_policy(scenario))
@@ -325,19 +353,22 @@ def replay(
     attention = list(state.sector_attention_s)
     if len(attention) != NUM_SECTORS:
         attention = [0.0] * NUM_SECTORS
-    return ReplaySession(
-        session_id="replay",
-        scenario_id=scenario.id,
-        duration_s=float(state.world.t),
-        final_state_hash=state.state_hash(),
-        ticks_per_second=int(round(1.0 / dt)),
-        trainee_actions=list(actions),
-        ghost_actions=ghost_actions,
-        entities=entities,
-        frames=frames,
-        events=list(state.world.events),
-        sector_attention=[round(float(a), 2) for a in attention],
-        score=score,
+    return ReplayOutcome(
+        session=ReplaySession(
+            session_id="replay",
+            scenario_id=scenario.id,
+            duration_s=float(state.world.t),
+            final_state_hash=state.state_hash(),
+            ticks_per_second=int(round(1.0 / dt)),
+            trainee_actions=list(actions),
+            ghost_actions=ghost_actions,
+            entities=entities,
+            frames=frames,
+            events=list(state.world.events),
+            sector_attention=[round(float(a), 2) for a in attention],
+            score=score,
+        ),
+        state=state,
     )
 
 
@@ -346,27 +377,42 @@ def replay(
 # --------------------------------------------------------------------------- #
 
 
-def _outcome_summary(result: PlayResult) -> dict[str, Any]:
-    """Compact outcome used to diff an original run against a fork."""
-    world = result.state.world
+def outcome_summary(result: PlayResult) -> dict[str, Any]:
+    """Compact outcome used to diff an original run against a fork.
+
+    Public because the browser builds the same diff when it forks a session
+    it played itself.
+    """
+    return outcome_summary_from(result.state, result.score, result.scenario)
+
+
+def outcome_summary_from(
+    state: EngineState, score: ScoreBreakdown, scenario: Scenario
+) -> dict[str, Any]:
+    """The same summary, from the pieces a caller already holds."""
+    world = state.world
     return {
-        "hash": result.final_state_hash,
-        "total": result.score.total,
-        "engagement": result.score.engagement,
-        "detection": result.score.detection,
-        "classification": result.score.classification,
-        "prioritisation": result.score.prioritisation,
-        "workload": result.score.workload,
+        "hash": state.state_hash(),
+        "total": score.total,
+        "engagement": score.engagement,
+        "detection": score.detection,
+        "classification": score.classification,
+        "prioritisation": score.prioritisation,
+        "workload": score.workload,
         "neutralised": sum(1 for e in world.entities.values() if e.neutralised),
         "breached": sum(
             1
             for e in world.entities.values()
             if e.label is LabelType.HOSTILE and e.reached_perimeter_t is not None
         ),
-        "ammunition_used": sum(e.ammunition for e in result.scenario.effectors)
+        "ammunition_used": sum(e.ammunition for e in scenario.effectors)
         - sum(s.ammo for s in world.effectors.values()),
-        "verdict_counts": dict(result.score.verdict_counts),
+        "verdict_counts": dict(score.verdict_counts),
     }
+
+
+#: Kept for callers that used the private name.
+_outcome_summary = outcome_summary
 
 
 def fork_session(
@@ -376,14 +422,20 @@ def fork_session(
     dt: float = 0.1,
     weights: ScoreWeights | None = None,
     follow_with_ghost: bool = True,
+    original: PlayResult | None = None,
 ) -> tuple[PlayResult, PlayResult, ForkResult]:
     """Re-simulate from a decision point with a modified action log.
 
     Returns ``(original, forked, result)``. When the original log is replayed
     unchanged the fork is a no-op and the hashes must match exactly, which is
     asserted by the AAR tests.
+
+    ``original`` lets a caller that already has the run - the browser, which
+    played it live - skip the replay, so a fork costs one simulation instead of
+    three.
     """
-    original = play(scenario, _StaticPolicy(actions), dt=dt, weights=weights)
+    if original is None:
+        original = play(scenario, _StaticPolicy(actions), dt=dt, weights=weights)
 
     fork_actions: list[TraineeAction] = []
     for i, a in enumerate(actions):

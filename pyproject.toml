@@ -6,9 +6,28 @@ build-backend = "setuptools.build_meta"
 name = "skygym"
 version = "0.1.0"
 description = "SKYGYM - AI-enabled drone & counter-drone threat simulation trainer (SIH 2026, PS 26247)"
-requires-python = ">=3.11,<3.12"
+# Vercel serves Python 3.12/3.13/3.14; the deployment targets 3.12. The
+# local development environment still runs 3.11 and does not install this
+# project (it installs backend/requirements.txt instead).
+requires-python = ">=3.12,<3.14"
+# The runtime pins, mirrored from backend/requirements-runtime.txt. Vercel
+# installs the project from this table; `backend/scripts/check_pins.py` fails
+# the build when the two files disagree.
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "websockets==14.1",
+    "python-multipart==0.0.20",
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.0",
+    "SQLAlchemy==2.0.36",
+    "alembic==1.14.0",
+    "numpy==2.2.1",
+    "scipy==1.15.0",
+]
 
 [tool.setuptools.packages.find]
+where = ["backend"]
 include = ["app*"]
 
 [tool.ruff]

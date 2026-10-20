@@ -1,12 +1,14 @@
 /**
  * Global client state: the live frame, UI selection, trainee identity and theme.
  *
- * Deliberately small - server state arrives over REST/WebSocket and is cached by
- * TanStack Query; Zustand only holds what the HUD needs at 60 fps.
+ * Deliberately small - the simulation engine holds the world and pushes frames
+ * here; TanStack Query caches the REST resources; Zustand only holds what the
+ * HUD needs at 60 fps.
  */
 
 import { create } from "zustand"
 import type { StateFrame, TrackView } from "@/api/types"
+import type { EngineStatus } from "@/engine/protocol"
 
 export type Theme = "dark" | "light"
 
@@ -19,7 +21,7 @@ export interface SimState {
   tracks: TrackView[]
   selectedTrackId: string | null
   sensorAzimuth: Record<string, number>
-  status: "idle" | "connecting" | "open" | "closed" | "error"
+  status: EngineStatus
   connectionNote: string
   theme: Theme
   paused: boolean

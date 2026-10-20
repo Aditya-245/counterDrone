@@ -19,7 +19,7 @@ import { Line, OrbitControls, Text } from "@react-three/drei"
 import * as THREE from "three"
 import type { Scenario, TrackView } from "@/api/types"
 import { LABEL_COLOURS } from "@/api/format"
-import { api } from "@/api/client"
+import { engine } from "@/engine/client"
 import { aim, snapAim, type ProjectedTrack } from "@/scene/aim"
 import { viewRequest } from "@/scene/viewRequest"
 import Landscape from "@/scene/world/Landscape"
@@ -156,18 +156,24 @@ function AimProjector({ tracks }: { tracks: TrackView[] }): null {
 /** Height probe shared with the camera so it can never sink through the ground. */
 type GroundProbe = (x: number, y: number) => number
 
-/** Loads the generated world for a scenario and mounts it. */
+/**
+ * Generates the world for a scenario and mounts it.
+ *
+ * The landscape is produced in the browser by the same `core.worldgen` the
+ * simulation used, so what masks a radar ray is exactly what the trainee
+ * sees. It is generated once per scenario and cached.
+ */
 function World({
-  scenarioId,
+  scenario,
   groundRef,
 }: {
-  scenarioId: string
+  scenario: Scenario
   groundRef: { current: GroundProbe }
 }): JSX.Element | null {
   const { data, isError } = useQuery({
-    queryKey: ["landscape", scenarioId],
-    queryFn: () => api.landscape(scenarioId),
-    enabled: scenarioId.length > 0,
+    queryKey: ["landscape", scenario.id],
+    queryFn: () => engine.landscape(scenario),
+    enabled: scenario.id.length > 0,
     staleTime: 5 * 60 * 1000,
   })
   const geometry = useMemo(() => (data ? landscapeGeometry(data) : null), [data])
@@ -421,7 +427,7 @@ export default function TacticalScene({
           scenario.site.ring_distances_m[scenario.site.ring_distances_m.length - 1] ?? 3000
         }
       />
-      <World scenarioId={scenario.id} groundRef={groundRef} />
+      <World scenario={scenario} groundRef={groundRef} />
       <mesh geometry={geo} position={[0, -0.5, 0]} visible={false}>
         <meshStandardMaterial color="#5d6b45" />
       </mesh>

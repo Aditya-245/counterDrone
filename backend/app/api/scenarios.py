@@ -14,7 +14,6 @@ from app.core.generator import generate, sanity_check
 from app.core.roe import available_rule_sets, describe_tree
 from app.core.schemas import (
     DifficultyVector,
-    LandscapeSpec,
     OkResponse,
     Scenario,
     TerrainPreset,
@@ -24,11 +23,6 @@ from app.db.models import ScenarioRow
 from app.db.session import session_scope
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
-
-#: Memoised landscapes, keyed by (scenario id, terrain fingerprint). Generation is
-#: deterministic, so a cache hit is indistinguishable from a fresh generation.
-_LANDSCAPE_CACHE_MAX = 16
-_landscape_cache: dict[tuple[str, str], LandscapeSpec] = {}
 
 
 class ScenarioSummary(BaseModel):
@@ -145,6 +139,10 @@ def recommended_ids(trainee_id: str | None) -> tuple[dict[str, str], str]:
 
     The recommendation is *materialised*: a matching scenario is generated and
     stored, so the Library page has a concrete thing to offer.
+
+    Generating one runs a full sanity simulation, which takes far too long for
+    a page load. The scenario id is derived from the trainee, so the stored
+    copy is reused once it exists.
     """
     if not trainee_id:
         return ({}, "")
@@ -155,6 +153,20 @@ def recommended_ids(trainee_id: str | None) -> tuple[dict[str, str], str]:
         return ({}, "")
     difficulty, weakest = model.recommend_difficulty()
     seed = _stable_seed(trainee_id)
+    scenario_id = f"gen_{int(seed) % 1_000_000:06d}"
+    reason = (
+        f"Your weakest skill is {weakest} (rating "
+        f"{float(getattr(model.skills, weakest)):.0f}/100). This scenario targets roughly "
+        "70% predicted success on that skill."
+    )
+
+    with session_scope() as db:
+        existing = db.get(ScenarioRow, scenario_id)
+    if existing is not None and "recommended" in (existing.tags_json or []):
+        # Already materialised for this trainee; generating it again would
+        # re-run the sanity simulation for nothing.
+        return ({scenario_id: reason}, reason)
+
     result = generate(
         seed=seed,
         difficulty=difficulty,
@@ -163,11 +175,6 @@ def recommended_ids(trainee_id: str | None) -> tuple[dict[str, str], str]:
     )
     if result.sanity_ok:
         upsert_scenario(result.scenario, source="generated")
-    reason = (
-        f"Your weakest skill is {weakest} (rating "
-        f"{float(getattr(model.skills, weakest)):.0f}/100). This scenario targets roughly "
-        "70% predicted success on that skill."
-    )
     return ({result.scenario.id: reason}, reason)
 
 
@@ -248,39 +255,6 @@ def read_scenario(scenario_id: str) -> Scenario:
         return load_scenario_row(row)
 
 
-@router.get("/{scenario_id}/environment", response_model=LandscapeSpec)
-def read_environment(scenario_id: str) -> LandscapeSpec:
-    """The generated world for one scenario: ground, roads, blocks, water.
-
-    Deterministic in (seed, terrain, authored buildings), so it is memoised on
-    the terrain fingerprint instead of being regenerated on every request.
-    """
-    from app.core.terrain import build_terrain
-    from app.core.worldgen import generate_landscape
-
-    with session_scope() as db:
-        row = db.get(ScenarioRow, scenario_id)
-        if row is None:
-            raise not_found("scenario", scenario_id)
-        scenario = load_scenario_row(row)
-    terrain = build_terrain(scenario.terrain, seed=scenario.seed)
-    key = (scenario.id, terrain.fingerprint)
-    cached = _landscape_cache.get(key)
-    if cached is not None:
-        return cached
-    spec = generate_landscape(
-        terrain,
-        seed=scenario.seed,
-        preset=scenario.terrain.preset,
-        buildings=tuple(scenario.terrain.buildings),
-        scenario_id=scenario.id,
-    )
-    if len(_landscape_cache) >= _LANDSCAPE_CACHE_MAX:
-        _landscape_cache.clear()
-    _landscape_cache[key] = spec
-    return spec
-
-
 @router.get("/{scenario_id}/summary", response_model=ScenarioSummary)
 def read_scenario_summary(scenario_id: str, trainee_id: str | None = None) -> ScenarioSummary:
     """Library-row view of one scenario."""
@@ -320,6 +294,8 @@ def create_generated(body: GenerateRequest) -> Scenario:
         tags=body.tags,
         terrain_preset=body.terrain_preset,
         duration_s=body.duration_s,
+        time_of_day=body.time_of_day,
+        threat_composition=body.threat_composition,
     )
     if not result.sanity_ok:
         raise unprocessable(

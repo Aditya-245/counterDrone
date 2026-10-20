@@ -6,6 +6,7 @@ DECISIONS.md D017).
 
 from __future__ import annotations
 
+import shutil
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
@@ -54,6 +55,30 @@ def get_session_factory() -> sessionmaker[Session]:
     if _SessionLocal is None:
         _SessionLocal = sessionmaker(bind=get_engine(), future=True, expire_on_commit=False)
     return _SessionLocal
+
+
+def prepare_runtime_db() -> bool:
+    """Put the pre-built seed snapshot in place when the database is missing.
+
+    A serverless instance has no writable filesystem except ``/tmp``, and every
+    instance gets its own copy of it, so the application cannot keep a
+    database file between requests. The build ships a seeded snapshot which is
+    copied into place here. Returns True when a snapshot was used.
+
+    Nothing happens when the database already exists (the normal case for a
+    local run) or when no snapshot was shipped: the caller then seeds the
+    library itself.
+    """
+    settings = get_settings()
+    target = Path(settings.db_path)
+    if target.exists():
+        return False
+    snapshot = Path(settings.seed_snapshot_path)
+    if not snapshot.is_file():
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(snapshot, target)
+    return True
 
 
 def init_db() -> None:

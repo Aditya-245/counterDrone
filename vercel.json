@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm --prefix frontend ci --include=dev --no-audit --no-fund && npm --prefix frontend run build && python backend/scripts/build_seed_snapshot.py",
+  "regions": ["bom1"],
+  "functions": {
+    "server.py": {
+      "maxDuration": 300,
+      "memory": 2048,
+      "includeFiles": "backend/data/seed_snapshot.db,frontend/dist/**",
+      "excludeFiles": "{.venv/**,frontend/node_modules/**,node_modules/**,.git/**,backend/tests/**,backend/data/logs/**,backend/data/skygym.db*,backend/data/migrations_tmp/**,**/__pycache__/**,*.pyc,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,.hypothesis/**,docs/**,uvicorn.log,uvicorn.err,vite.log,vite.err}"
+    }
+  }
+}

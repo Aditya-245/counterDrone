@@ -1,7 +1,7 @@
 .PHONY: help install install-frontend install-ml dev dev-backend dev-frontend check \
         lint format format-check typecheck test test-front test-full check-all e2e \
         seed demo seed-db reset-db migrate migration schemas headless live-demo export-schema \
-        train clean
+        clean
 
 PY        ?= .venv/Scripts/python.exe
 PYTHON    ?= .venv/Scripts/python
@@ -33,7 +33,6 @@ help:
 	@echo "  make headless        run one scenario headless and print entity paths"
 	@echo "  make live-demo       play one live session over the API (needs 'make dev')"
 	@echo "  make schemas         export Pydantic JSON Schema into docs/schema/"
-	@echo "  make train           train the Red Brain Layer B PPO policy (optional deps)"
 	@echo "  make reset-db        drop and recreate the SQLite database"
 
 # ---------------------------------------------------------------- install ----
@@ -121,9 +120,6 @@ migration:
 downgrade:
 	$(ALEMBIC) downgrade -1
 
-train:
-	$(PYTHON) backend/training/train_redbrain.py --steps $(or $(STEPS),20000)
-
 demo: seed
 	@echo "SKYGYM demo ready."
 	@echo "  briefing : http://localhost:$(FRONTPORT)/briefing/scn_solo_fpv_dusk"
@@ -133,12 +129,12 @@ demo: seed
 
 # ------------------------------------------------------------------ extras ---
 schemas:
-	$(PYTHON) -m app.core.schema_export
+	$(PYTHON) backend/scripts/export_schema.py
 
 export-schema: schemas
 
 headless:
-	$(PYTHON) -m app.core.headless
+	$(PYTHON) backend/scripts/headless.py
 
 live-demo:
 	$(PYTHON) backend/scripts/live_demo.py

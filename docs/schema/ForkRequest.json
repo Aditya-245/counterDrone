@@ -77,6 +77,12 @@
   "additionalProperties": false,
   "description": "Re-simulate from a decision point with a modified action.",
   "properties": {
+    "follow_with_ghost": {
+      "default": true,
+      "description": "Let the counterfactual oracle take over at fork_t and append its actions to the fork log (the default counterfactual). Set false to re-simulate the trainee's own log unchanged.",
+      "title": "Follow With Ghost",
+      "type": "boolean"
+    },
     "fork_t": {
       "minimum": 0.0,
       "title": "Fork T",

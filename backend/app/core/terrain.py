@@ -338,15 +338,26 @@ def _segment_intersects_rect(p0: Vec3, p1: Vec3, rect: BuildingSpec) -> bool:
 
 
 def _segment_rect_param(p0: Vec3, p1: Vec3, rect: BuildingSpec) -> float | None:
-    """Liang-Barsky clip: return the entry parameter t, or None when disjoint."""
+    """Liang-Barsky clip in the footprint's frame; returns entry t or None.
+
+    The ray is rotated into the building's local frame (the footprint is a box in
+    plan, rotated by `rect.rotation_deg` about its centre), which makes the test
+    identical to the axis-aligned case.
+    """
     dx = p1.x - p0.x
     dy = p1.y - p0.y
-    x0 = rect.x - rect.width_m / 2.0
-    x1 = rect.x + rect.width_m / 2.0
-    y0 = rect.y - rect.depth_m / 2.0
-    y1 = rect.y + rect.depth_m / 2.0
+    theta = math.radians(rect.rotation_deg)
+    cos_t, sin_t = math.cos(-theta), math.sin(-theta)
+    px = (p0.x - rect.x) * cos_t - (p0.y - rect.y) * sin_t
+    py = (p0.x - rect.x) * sin_t + (p0.y - rect.y) * cos_t
+    dxr = dx * cos_t - dy * sin_t
+    dyr = dx * sin_t + dy * cos_t
+    x0 = -rect.width_m / 2.0
+    x1 = rect.width_m / 2.0
+    y0 = -rect.depth_m / 2.0
+    y1 = rect.depth_m / 2.0
     t_enter, t_exit = 0.0, 1.0
-    for p, q in ((-dx, p0.x - x0), (dx, x1 - p0.x), (-dy, p0.y - y0), (dy, y1 - p0.y)):
+    for p, q in ((-dxr, px - x0), (dxr, x1 - px), (-dyr, py - y0), (dyr, y1 - py)):
         if abs(p) < 1e-9:
             if q < 0.0:
                 return None
@@ -370,7 +381,10 @@ def terrain_fingerprint(heights: np.ndarray, buildings: tuple[BuildingSpec, ...]
     h = hashlib.blake2b(digest_size=12)
     h.update(np.ascontiguousarray(heights, dtype=np.float64).tobytes())
     for b in buildings:
-        h.update(f"{b.x:.2f},{b.y:.2f},{b.width_m:.2f},{b.depth_m:.2f},{b.height_m:.2f}".encode())
+        h.update(
+            f"{b.x:.2f},{b.y:.2f},{b.width_m:.2f},{b.depth_m:.2f},"
+            f"{b.height_m:.2f},{b.rotation_deg:.2f}".encode()
+        )
     return h.hexdigest()
 
 

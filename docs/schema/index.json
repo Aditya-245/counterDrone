@@ -164,6 +164,12 @@
       "additionalProperties": false,
       "description": "Re-simulate from a decision point with a modified action.",
       "properties": {
+        "follow_with_ghost": {
+          "default": true,
+          "description": "Let the counterfactual oracle take over at fork_t and append its actions to the fork log (the default counterfactual). Set false to re-simulate the trainee's own log unchanged.",
+          "title": "Follow With Ghost",
+          "type": "boolean"
+        },
         "fork_t": {
           "minimum": 0.0,
           "title": "Fork T",
@@ -430,6 +436,430 @@
       "title": "ForkResult",
       "type": "object"
     },
+    "LandscapeSpec": {
+      "$defs": {
+        "BuildingInstance": {
+          "additionalProperties": false,
+          "description": "One building to draw, carrying its procedural archetype.",
+          "properties": {
+            "depth_m": {
+              "title": "Depth M",
+              "type": "number"
+            },
+            "height_m": {
+              "title": "Height M",
+              "type": "number"
+            },
+            "kind": {
+              "$ref": "#/$defs/BuildingKind",
+              "default": "house_gable"
+            },
+            "occluder": {
+              "default": true,
+              "title": "Occluder",
+              "type": "boolean"
+            },
+            "rotation_deg": {
+              "default": 0.0,
+              "title": "Rotation Deg",
+              "type": "number"
+            },
+            "schema_version": {
+              "default": 3,
+              "description": "Wire schema version; unknown versions are rejected at the boundary.",
+              "minimum": 1,
+              "title": "Schema Version",
+              "type": "integer"
+            },
+            "width_m": {
+              "title": "Width M",
+              "type": "number"
+            },
+            "x": {
+              "title": "X",
+              "type": "number"
+            },
+            "y": {
+              "title": "Y",
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width_m",
+            "depth_m",
+            "height_m"
+          ],
+          "title": "BuildingInstance",
+          "type": "object"
+        },
+        "BuildingKind": {
+          "description": "Building archetypes the renderer knows how to build procedurally.",
+          "enum": [
+            "house_gable",
+            "house_hip",
+            "house_flat",
+            "shop",
+            "apartment",
+            "warehouse",
+            "shed",
+            "tower"
+          ],
+          "title": "BuildingKind",
+          "type": "string"
+        },
+        "FieldPatch": {
+          "additionalProperties": false,
+          "description": "One agricultural field: a land-cover index and a closed outline.",
+          "properties": {
+            "index": {
+              "default": 0,
+              "title": "Index",
+              "type": "integer"
+            },
+            "points": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "title": "Points",
+              "type": "array"
+            },
+            "schema_version": {
+              "default": 3,
+              "description": "Wire schema version; unknown versions are rejected at the boundary.",
+              "minimum": 1,
+              "title": "Schema Version",
+              "type": "integer"
+            }
+          },
+          "title": "FieldPatch",
+          "type": "object"
+        },
+        "PropInstance": {
+          "additionalProperties": false,
+          "description": "One piece of small clutter.",
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/PropKind",
+              "default": "fence"
+            },
+            "length_m": {
+              "default": 2.0,
+              "title": "Length M",
+              "type": "number"
+            },
+            "rotation_deg": {
+              "default": 0.0,
+              "title": "Rotation Deg",
+              "type": "number"
+            },
+            "schema_version": {
+              "default": 3,
+              "description": "Wire schema version; unknown versions are rejected at the boundary.",
+              "minimum": 1,
+              "title": "Schema Version",
+              "type": "integer"
+            },
+            "x": {
+              "title": "X",
+              "type": "number"
+            },
+            "y": {
+              "title": "Y",
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "title": "PropInstance",
+          "type": "object"
+        },
+        "PropKind": {
+          "description": "Small clutter: walls, fences, hedgerows, lamps, vehicles.",
+          "enum": [
+            "fence",
+            "wall",
+            "hedge",
+            "lamp",
+            "vehicle",
+            "haystack",
+            "silo"
+          ],
+          "title": "PropKind",
+          "type": "string"
+        },
+        "RoadKind": {
+          "description": "Road classes, widest first: the width drives the carriageway.",
+          "enum": [
+            "arterial",
+            "street",
+            "lane",
+            "track"
+          ],
+          "title": "RoadKind",
+          "type": "string"
+        },
+        "RoadSpec": {
+          "additionalProperties": false,
+          "description": "One road centre line, drawn as a ribbon of `width_m`.",
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/RoadKind",
+              "default": "street"
+            },
+            "markings": {
+              "default": false,
+              "title": "Markings",
+              "type": "boolean"
+            },
+            "points": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "title": "Points",
+              "type": "array"
+            },
+            "schema_version": {
+              "default": 3,
+              "description": "Wire schema version; unknown versions are rejected at the boundary.",
+              "minimum": 1,
+              "title": "Schema Version",
+              "type": "integer"
+            },
+            "width_m": {
+              "default": 10.0,
+              "title": "Width M",
+              "type": "number"
+            }
+          },
+          "title": "RoadSpec",
+          "type": "object"
+        },
+        "TreeInstance": {
+          "additionalProperties": false,
+          "description": "One vegetation instance.",
+          "properties": {
+            "height_m": {
+              "default": 9.0,
+              "title": "Height M",
+              "type": "number"
+            },
+            "kind": {
+              "$ref": "#/$defs/TreeKind",
+              "default": "broadleaf"
+            },
+            "radius_m": {
+              "default": 3.5,
+              "title": "Radius M",
+              "type": "number"
+            },
+            "schema_version": {
+              "default": 3,
+              "description": "Wire schema version; unknown versions are rejected at the boundary.",
+              "minimum": 1,
+              "title": "Schema Version",
+              "type": "integer"
+            },
+            "x": {
+              "title": "X",
+              "type": "number"
+            },
+            "y": {
+              "title": "Y",
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "title": "TreeInstance",
+          "type": "object"
+        },
+        "TreeKind": {
+          "description": "Vegetation archetypes.",
+          "enum": [
+            "broadleaf",
+            "conifer",
+            "dead"
+          ],
+          "title": "TreeKind",
+          "type": "string"
+        },
+        "WaterKind": {
+          "description": "Surface water.",
+          "enum": [
+            "pond",
+            "stream"
+          ],
+          "title": "WaterKind",
+          "type": "string"
+        },
+        "WaterSpec": {
+          "additionalProperties": false,
+          "description": "A pond or stream surface, as a closed or open polyline.",
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/WaterKind",
+              "default": "pond"
+            },
+            "points": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "title": "Points",
+              "type": "array"
+            },
+            "schema_version": {
+              "default": 3,
+              "description": "Wire schema version; unknown versions are rejected at the boundary.",
+              "minimum": 1,
+              "title": "Schema Version",
+              "type": "integer"
+            },
+            "width_m": {
+              "default": 6.0,
+              "title": "Width M",
+              "type": "number"
+            }
+          },
+          "title": "WaterSpec",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Everything the client needs to draw the world for one scenario.\n\n`heights_b64` is a base64 little-endian int16 grid of centimetres,\n`landcover_b64` a base64 uint8 grid indexing `palette`. Both are\n`grid_n` square and cover `[-size_m/2, size_m/2]` on both axes.",
+      "properties": {
+        "buildings": {
+          "items": {
+            "$ref": "#/$defs/BuildingInstance"
+          },
+          "title": "Buildings",
+          "type": "array"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/FieldPatch"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "grid_n": {
+          "title": "Grid N",
+          "type": "integer"
+        },
+        "heights_b64": {
+          "title": "Heights B64",
+          "type": "string"
+        },
+        "landcover_b64": {
+          "title": "Landcover B64",
+          "type": "string"
+        },
+        "max_height_m": {
+          "title": "Max Height M",
+          "type": "number"
+        },
+        "palette": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Palette",
+          "type": "array"
+        },
+        "props": {
+          "items": {
+            "$ref": "#/$defs/PropInstance"
+          },
+          "title": "Props",
+          "type": "array"
+        },
+        "roads": {
+          "items": {
+            "$ref": "#/$defs/RoadSpec"
+          },
+          "title": "Roads",
+          "type": "array"
+        },
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 3,
+          "description": "Wire schema version; unknown versions are rejected at the boundary.",
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "size_m": {
+          "title": "Size M",
+          "type": "number"
+        },
+        "trees": {
+          "items": {
+            "$ref": "#/$defs/TreeInstance"
+          },
+          "title": "Trees",
+          "type": "array"
+        },
+        "water": {
+          "items": {
+            "$ref": "#/$defs/WaterSpec"
+          },
+          "title": "Water",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "seed",
+        "size_m",
+        "grid_n",
+        "max_height_m",
+        "heights_b64",
+        "landcover_b64"
+      ],
+      "title": "LandscapeSpec",
+      "type": "object"
+    },
     "NlBuildResult": {
       "$defs": {
         "BearingPoint": {
@@ -596,7 +1026,7 @@
         },
         "BuildingSpec": {
           "additionalProperties": false,
-          "description": "An abstract building block, used for LOS/occlusion in urban presets.",
+          "description": "An abstract building block, used for LOS/occlusion in urban presets.\n\n`rotation_deg` turns the footprint so settlements and city blocks can follow\nthe road they front instead of sitting on a world-axis grid; the line-of-sight\ntest rotates the ray into the footprint's frame, so what the renderer draws is\nwhat actually occludes.",
           "properties": {
             "depth_m": {
               "exclusiveMinimum": 0.0,
@@ -606,6 +1036,11 @@
             "height_m": {
               "exclusiveMinimum": 0.0,
               "title": "Height M",
+              "type": "number"
+            },
+            "rotation_deg": {
+              "default": 0.0,
+              "title": "Rotation Deg",
               "type": "number"
             },
             "schema_version": {
@@ -3251,7 +3686,7 @@
         },
         "BuildingSpec": {
           "additionalProperties": false,
-          "description": "An abstract building block, used for LOS/occlusion in urban presets.",
+          "description": "An abstract building block, used for LOS/occlusion in urban presets.\n\n`rotation_deg` turns the footprint so settlements and city blocks can follow\nthe road they front instead of sitting on a world-axis grid; the line-of-sight\ntest rotates the ray into the footprint's frame, so what the renderer draws is\nwhat actually occludes.",
           "properties": {
             "depth_m": {
               "exclusiveMinimum": 0.0,
@@ -3261,6 +3696,11 @@
             "height_m": {
               "exclusiveMinimum": 0.0,
               "title": "Height M",
+              "type": "number"
+            },
+            "rotation_deg": {
+              "default": 0.0,
+              "title": "Rotation Deg",
               "type": "number"
             },
             "schema_version": {
@@ -6295,6 +6735,7 @@
     "DifficultyVector": "DifficultyVector.json",
     "ForkRequest": "ForkRequest.json",
     "ForkResult": "ForkResult.json",
+    "LandscapeSpec": "LandscapeSpec.json",
     "NlBuildResult": "NlBuildResult.json",
     "ReplaySession": "ReplaySession.json",
     "Scenario": "Scenario.json",

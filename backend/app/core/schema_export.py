@@ -17,6 +17,7 @@ from app.core.schemas import (
     DifficultyVector,
     ForkRequest,
     ForkResult,
+    LandscapeSpec,
     NlBuildResult,
     ReplaySession,
     Scenario,
@@ -41,6 +42,7 @@ EXPORTS: dict[str, type[BaseModel]] = {
     "ReplaySession": ReplaySession,
     "ForkRequest": ForkRequest,
     "ForkResult": ForkResult,
+    "LandscapeSpec": LandscapeSpec,
     "NlBuildResult": NlBuildResult,
 }
 

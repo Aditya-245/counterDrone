@@ -14,6 +14,7 @@ from app.core.generator import generate, sanity_check
 from app.core.roe import available_rule_sets, describe_tree
 from app.core.schemas import (
     DifficultyVector,
+    LandscapeSpec,
     OkResponse,
     Scenario,
     TerrainPreset,
@@ -22,6 +23,11 @@ from app.db.models import ScenarioRow
 from app.db.session import session_scope
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
+
+#: Memoised landscapes, keyed by (scenario id, terrain fingerprint). Generation is
+#: deterministic, so a cache hit is indistinguishable from a fresh generation.
+_LANDSCAPE_CACHE_MAX = 16
+_landscape_cache: dict[tuple[str, str], LandscapeSpec] = {}
 
 
 class ScenarioSummary(BaseModel):
@@ -232,6 +238,39 @@ def read_scenario(scenario_id: str) -> Scenario:
         if row is None:
             raise not_found("scenario", scenario_id)
         return load_scenario_row(row)
+
+
+@router.get("/{scenario_id}/environment", response_model=LandscapeSpec)
+def read_environment(scenario_id: str) -> LandscapeSpec:
+    """The generated world for one scenario: ground, roads, blocks, water.
+
+    Deterministic in (seed, terrain, authored buildings), so it is memoised on
+    the terrain fingerprint instead of being regenerated on every request.
+    """
+    from app.core.terrain import build_terrain
+    from app.core.worldgen import generate_landscape
+
+    with session_scope() as db:
+        row = db.get(ScenarioRow, scenario_id)
+        if row is None:
+            raise not_found("scenario", scenario_id)
+        scenario = load_scenario_row(row)
+    terrain = build_terrain(scenario.terrain, seed=scenario.seed)
+    key = (scenario.id, terrain.fingerprint)
+    cached = _landscape_cache.get(key)
+    if cached is not None:
+        return cached
+    spec = generate_landscape(
+        terrain,
+        seed=scenario.seed,
+        preset=scenario.terrain.preset,
+        buildings=tuple(scenario.terrain.buildings),
+        scenario_id=scenario.id,
+    )
+    if len(_landscape_cache) >= _LANDSCAPE_CACHE_MAX:
+        _landscape_cache.clear()
+    _landscape_cache[key] = spec
+    return spec
 
 
 @router.get("/{scenario_id}/summary", response_model=ScenarioSummary)

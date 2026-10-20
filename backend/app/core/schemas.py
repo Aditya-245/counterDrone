@@ -271,13 +271,155 @@ class TerrainSpec(VersionedModel):
 
 
 class BuildingSpec(VersionedModel):
-    """An abstract building block, used for LOS/occlusion in urban presets."""
+    """An abstract building block, used for LOS/occlusion in urban presets.
+
+    `rotation_deg` turns the footprint so settlements and city blocks can follow
+    the road they front instead of sitting on a world-axis grid; the line-of-sight
+    test rotates the ray into the footprint's frame, so what the renderer draws is
+    what actually occludes.
+    """
 
     x: float
     y: float
     width_m: float = Field(gt=0.0)
     depth_m: float = Field(gt=0.0)
     height_m: float = Field(gt=0.0)
+    rotation_deg: float = 0.0
+
+
+# --------------------------------------------------------------------------- #
+# Landscape (what the client draws)
+# --------------------------------------------------------------------------- #
+
+
+class RoadKind(str, Enum):
+    """Road classes, widest first: the width drives the carriageway."""
+
+    ARTERIAL = "arterial"
+    STREET = "street"
+    LANE = "lane"
+    TRACK = "track"
+
+
+class BuildingKind(str, Enum):
+    """Building archetypes the renderer knows how to build procedurally."""
+
+    HOUSE_GABLE = "house_gable"
+    HOUSE_HIP = "house_hip"
+    HOUSE_FLAT = "house_flat"
+    SHOP = "shop"
+    APARTMENT = "apartment"
+    WAREHOUSE = "warehouse"
+    SHED = "shed"
+    TOWER = "tower"
+
+
+class TreeKind(str, Enum):
+    """Vegetation archetypes."""
+
+    BROADLEAF = "broadleaf"
+    CONIFER = "conifer"
+    DEAD = "dead"
+
+
+class PropKind(str, Enum):
+    """Small clutter: walls, fences, hedgerows, lamps, vehicles."""
+
+    FENCE = "fence"
+    WALL = "wall"
+    HEDGE = "hedge"
+    LAMP = "lamp"
+    VEHICLE = "vehicle"
+    HAYSTACK = "haystack"
+    SILO = "silo"
+
+
+class WaterKind(str, Enum):
+    """Surface water."""
+
+    POND = "pond"
+    STREAM = "stream"
+
+
+class RoadSpec(VersionedModel):
+    """One road centre line, drawn as a ribbon of `width_m`."""
+
+    kind: RoadKind = RoadKind.STREET
+    width_m: float = 10.0
+    markings: bool = False
+    points: list[tuple[float, float]] = Field(default_factory=list)
+
+
+class BuildingInstance(VersionedModel):
+    """One building to draw, carrying its procedural archetype."""
+
+    x: float
+    y: float
+    width_m: float
+    depth_m: float
+    height_m: float
+    rotation_deg: float = 0.0
+    kind: BuildingKind = BuildingKind.HOUSE_GABLE
+    occluder: bool = True
+
+
+class TreeInstance(VersionedModel):
+    """One vegetation instance."""
+
+    x: float
+    y: float
+    height_m: float = 9.0
+    radius_m: float = 3.5
+    kind: TreeKind = TreeKind.BROADLEAF
+
+
+class PropInstance(VersionedModel):
+    """One piece of small clutter."""
+
+    x: float
+    y: float
+    rotation_deg: float = 0.0
+    length_m: float = 2.0
+    kind: PropKind = PropKind.FENCE
+
+
+class WaterSpec(VersionedModel):
+    """A pond or stream surface, as a closed or open polyline."""
+
+    kind: WaterKind = WaterKind.POND
+    width_m: float = 6.0
+    points: list[tuple[float, float]] = Field(default_factory=list)
+
+
+class FieldPatch(VersionedModel):
+    """One agricultural field: a land-cover index and a closed outline."""
+
+    index: int = 0
+    points: list[tuple[float, float]] = Field(default_factory=list)
+
+
+class LandscapeSpec(VersionedModel):
+    """Everything the client needs to draw the world for one scenario.
+
+    `heights_b64` is a base64 little-endian int16 grid of centimetres,
+    `landcover_b64` a base64 uint8 grid indexing `palette`. Both are
+    `grid_n` square and cover `[-size_m/2, size_m/2]` on both axes.
+    """
+
+    scenario_id: str
+    seed: int
+    size_m: float
+    grid_n: int
+    max_height_m: float
+    heights_b64: str
+    landcover_b64: str
+    palette: list[str] = Field(default_factory=list)
+    roads: list[RoadSpec] = Field(default_factory=list)
+    buildings: list[BuildingInstance] = Field(default_factory=list)
+    fields: list[FieldPatch] = Field(default_factory=list)
+    trees: list[TreeInstance] = Field(default_factory=list)
+    props: list[PropInstance] = Field(default_factory=list)
+    water: list[WaterSpec] = Field(default_factory=list)
 
 
 class EnvSpec(VersionedModel):

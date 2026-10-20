@@ -24,7 +24,8 @@ Open <http://127.0.0.1:5173>.
 
 The landing page is the scenario library: **two shipped scenarios, one rural and one
 city**, each with terrain preset, threat mix, difficulty, sensor set, and the
-**oracle target score**. Filter by category (`rural` / `city`) in the toolbar.
+**oracle target score** (98.3 for the rural patrol, 93.3 for the night swarm).
+Filter by category (`rural` / `city`) in the toolbar.
 
 Point out the recommendation card at the top: it names the trainee, the weakest
 skill, and why that scenario is suggested. If the library has no generated
@@ -64,7 +65,10 @@ The sim is server-authoritative: the browser draws what the server sends at 10 H
    clear hostile) — the cap at 60 points and the coaching line make much better
    theatre than a perfect run.
 6. **Camera.** `WASD` pans, `F` toggles fullscreen, `Space` requests pause
-   (instructor-only, so it lands in the action log).
+   (instructor-only, so it lands in the action log). The three buttons above the
+   scene move the view: **Ground** (eye height, best for showing the buildings and
+   the trees), **Site** (the tactical orbit the trainee works in) and **Top**
+   (overview). The camera cannot sink through the terrain.
 
 End the session when the wave timer runs out (or after the last breach).
 
@@ -112,9 +116,9 @@ Fill in when the demo is rehearsed on the final build:
 
 | Step | Result |
 | --- | --- |
-| `make check` | see README |
-| seed: 2 shipped + synthetic sessions | |
-| live session scored | session id, score |
-| AAR hash match | |
-| fork diverged | delta |
-| dashboard charts from stored rows | |
+| `make seed` | 2 shipped scenarios, oracle 98.3 / 93.3, 20 synthetic sessions, ~5 min |
+| `make live-demo` (urban night swarm) | session `ses_185598563707`, 601 frames, 81 actions, score 21.5, hash `cfb32c4a…` |
+| Landscape payload | 51 roads, 520 buildings, 502 trees, 215 kB, generated in ~0.2 s |
+| Tick budget | 0.53 ms (rural), 0.69 ms (urban), 38 ms at 40 contacts (worst case) |
+| AAR hash match | see the AAR page: the stored and replayed hashes are shown side by side |
+| dashboard charts | from the 20 stored synthetic sessions |

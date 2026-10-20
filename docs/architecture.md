@@ -87,6 +87,7 @@ The after-action review replays a stored session at the canonical 10 Hz
 | `core/engine.py` | `step()`, `SimEngine`, actions, spawns, effects, state hash |
 | `core/world.py` | World state, entity physics, sensor runtime, terrain sampling |
 | `core/terrain.py` | Deterministic heightfield + line-of-sight, `BuildingSpec` boxes |
+| `core/worldgen.py` | Procedural landscape: roads, blocks, settlements, fields, water (D033) |
 | `core/sensors.py` | Radar / RF / acoustic / EO-IR detection models |
 | `core/tracking.py` | Kalman filter, M-of-N tracker, identity hints |
 | `core/roe.py` | ROE documents, rule sets (STRICT/STANDARD/PERMISSIVE), evaluator |
@@ -107,26 +108,58 @@ The after-action review replays a stored session at the canonical 10 Hz
   (`/instructor`).
 - **State**: zustand holds the live frame and UI selection (updated at 10 Hz);
   TanStack Query caches REST resources. The 3D scene never re-renders per frame.
-- **Sim page**: the r3f canvas draws one `InstancedMesh` for all contacts and one
-  for all buildings (two draw calls), with LOD by range. The HUD draws radar/EO
-  scopes as canvas 2D, a track table, the timeline and the effector panel. A
-  reticle overlay provides aim assist and the contact class chooser
-  (`hud/AimOverlay.tsx`, `scene/aim.ts`); WASD pans the view and `F` toggles
-  fullscreen (D023, D024).
+- **Sim page**: the r3f canvas draws one `InstancedMesh` for all contacts, and the
+  world (terrain, roads, buildings, vegetation, water, sky) comes from
+  `scene/world/`, which renders the layout the backend generated for this
+  scenario. The HUD draws radar/EO scopes as canvas 2D, a track table, the
+  timeline and the effector panel. A reticle overlay provides aim assist and the
+  contact class chooser (`hud/AimOverlay.tsx`, `scene/aim.ts`); WASD pans the
+  view, `Ground`/`Site`/`Top` move the camera between inspection views, and `F`
+  toggles fullscreen (D023, D024, D033).
 - **Theme**: dark `#181C14 #3C3D37 #697565 #ECDFCC`, light
   `#FFFAF3 #FFF2DB #FFE5BF #F62440`. The 3D scene keeps the dark instrument
   palette in both themes (D025). No external fonts or CDNs.
 
+## The world
+
+The scene used to be an analytic sine-bump plane with wireframe boxes. It is now
+generated, once, by the backend, from the same inputs the simulation uses:
+
+```
+scenario (seed, TerrainSpec)
+   └─ core/terrain.build_terrain ──► heightfield + authoritative occluders
+        └─ core/worldgen.generate_landscape
+             ├─ land-cover raster (grass, crop, soil, paved, gravel, water, asphalt)
+             ├─ road network (arterials, streets, lanes, tracks) + kerbs + markings
+             ├─ city blocks / village clusters / farmsteads, rotated to front a street
+             ├─ field patchwork with hedgerow outlines, ponds and streams
+             └─ trees, hedges, walls, lamps, vehicles
+                  └─ GET /api/scenarios/{id}/environment  (one payload, ~110-200 kB)
+                       └─ scene/world/Landscape.tsx  (≈20 draw calls, all instanced)
+```
+
+Two rules keep the picture honest:
+
+- **The ground is the simulation's ground.** The payload carries the server's
+  heightfield, so what masks a radar ray is what the trainee sees.
+- **Only authored footprints occlude.** Buildings carried by the scenario's
+  `terrain.buildings` are the ones the line-of-sight test knows about; everything
+  the generator invents for context is scenery and is flagged as such.
+
+
 ## Performance approach
 
 - One draw call per class of object in the 3D scene; no React components inside the
-  canvas for per-track objects.
+  canvas for per-track objects. The world itself is ~20 instanced or merged draw
+  calls: terrain, kerbs, roads, markings, water, hedgerows, one per building
+  archetype, one per tree species, one per prop kind.
 - The HUD updates by direct DOM writes from a `requestAnimationFrame` loop where a
   re-render per frame would be wasteful (reticle, scopes).
 - The server tick budget is measured by `backend/tests/test_perf.py`
   (40 contacts, 4 sensors) and recorded in `README.md`.
 - Everything runs on one laptop with no GPU requirement, no network, and no API
-  keys.
+  keys. The world is generated server-side in ~0.2 s per scenario and cached, so
+  the browser only pays for decoding the payload.
 
 ## Offline and safety boundaries
 

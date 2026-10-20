@@ -8,6 +8,7 @@ import { useSimStore } from "@/state/simStore"
 import TacticalScene from "@/scene/TacticalScene"
 import AimOverlay from "@/hud/AimOverlay"
 import { aim, resetAim } from "@/scene/aim"
+import { requestView } from "@/scene/viewRequest"
 import { CameraView, RadarScope } from "@/hud/ScopePanel"
 import TrackTable from "@/hud/TrackTable"
 import {
@@ -278,6 +279,32 @@ export default function SimPage(): JSX.Element {
           onClassify={classifyTrack}
         />
         <div className="scene-tools no-print">
+          <div className="row" style={{ gap: 4 }}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => requestView("ground")}
+              title="Ground-level view"
+            >
+              Ground
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => requestView("site")}
+              title="Tactical site view"
+            >
+              Site
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => requestView("top")}
+              title="Overview"
+            >
+              Top
+            </button>
+          </div>
           <button
             type="button"
             className="btn"

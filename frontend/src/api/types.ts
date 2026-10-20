@@ -190,6 +190,91 @@ export interface BuildingSpec {
   width_m: number
   depth_m: number
   height_m: number
+  rotation_deg: number
+}
+
+/** Road classes, widest first: the width drives the carriageway. */
+export type RoadKind = "arterial" | "street" | "lane" | "track"
+/** Building archetypes the renderer builds procedurally. */
+export type BuildingKind =
+  | "house_gable"
+  | "house_hip"
+  | "house_flat"
+  | "shop"
+  | "apartment"
+  | "warehouse"
+  | "shed"
+  | "tower"
+export type TreeKind = "broadleaf" | "conifer" | "dead"
+export type PropKind = "fence" | "wall" | "hedge" | "lamp" | "vehicle" | "haystack" | "silo"
+export type WaterKind = "pond" | "stream"
+
+export interface RoadSpec {
+  kind: RoadKind
+  width_m: number
+  markings: boolean
+  points: [number, number][]
+}
+
+export interface BuildingInstance {
+  x: number
+  y: number
+  width_m: number
+  depth_m: number
+  height_m: number
+  rotation_deg: number
+  kind: BuildingKind
+  occluder: boolean
+}
+
+export interface TreeInstance {
+  x: number
+  y: number
+  height_m: number
+  radius_m: number
+  kind: TreeKind
+}
+
+export interface PropInstance {
+  x: number
+  y: number
+  rotation_deg: number
+  length_m: number
+  kind: PropKind
+}
+
+export interface WaterSpec {
+  kind: WaterKind
+  width_m: number
+  points: [number, number][]
+}
+
+export interface FieldPatch {
+  index: number
+  points: [number, number][]
+}
+
+/**
+ * The generated world for one scenario: ground, roads, blocks, water.
+ *
+ * `heights_b64` is a little-endian int16 grid of centimetres and `landcover_b64`
+ * a uint8 grid indexing `palette`; both are `grid_n` square.
+ */
+export interface LandscapeSpec {
+  scenario_id: string
+  seed: number
+  size_m: number
+  grid_n: number
+  max_height_m: number
+  heights_b64: string
+  landcover_b64: string
+  palette: string[]
+  roads: RoadSpec[]
+  buildings: BuildingInstance[]
+  fields: FieldPatch[]
+  trees: TreeInstance[]
+  props: PropInstance[]
+  water: WaterSpec[]
 }
 
 export interface TerrainSpec {

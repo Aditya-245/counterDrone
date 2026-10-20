@@ -5,6 +5,7 @@ import type {
   DifficultyVector,
   ForkResult,
   HealthResponse,
+  LandscapeSpec,
   NlBuildResult,
   RedBrainReport,
   ReplaySession,
@@ -69,6 +70,7 @@ export const api = {
     return request<ScenarioList>(`/api/scenarios${qs ? `?${qs}` : ""}`)
   },
   scenario: (id: string) => request<Scenario>(`/api/scenarios/${id}`),
+  landscape: (id: string) => request<LandscapeSpec>(`/api/scenarios/${id}/environment`),
   ruleSet: (id: string) => request<Record<string, unknown>>(`/api/scenarios/rulesets/${id}`),
   validateScenario: (scenario: Scenario) =>
     request<{ valid: boolean; errors: string[]; sanity_ok: boolean; sanity_message: string }>(

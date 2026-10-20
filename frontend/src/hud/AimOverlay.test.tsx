@@ -78,9 +78,7 @@ describe("AimOverlay", () => {
   })
 
   it("hides the reticle once the pointer leaves the scene", async () => {
-    const { container } = render(
-      <AimOverlay tracks={[]} onLock={() => {}} onClassify={() => {}} />,
-    )
+    const { container } = render(<AimOverlay tracks={[]} onLock={() => {}} onClassify={() => {}} />)
     aim.active = true
     aim.lockedId = "T0004"
     const reticle = screen.getByTestId("reticle")

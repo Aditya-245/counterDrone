@@ -1,24 +1,30 @@
 /**
  * 3D tactical scene.
  *
+ * The world itself (terrain, roads, buildings, vegetation, water, sky) comes from
+ * `scene/world`, which renders the layout the backend generated from the scenario
+ * seed - the same heightfield the sensors mask against. This module keeps the
+ * *instrument* layer on top: contacts, rings, sensors and the aim overlay.
+ *
  * Performance approach for the 60 fps / 40-drone budget on integrated graphics:
  *  - one `InstancedMesh` for all tracks (a single draw call regardless of count);
- *  - one `InstancedMesh` for all buildings;
- *  - LOD by range: far contacts are flat billboards, near ones get a marker ring;
- *  - the terrain is a single low-poly mesh with vertex colours;
- *  - no per-track React components inside the canvas (they re-render at 60 fps).
- *
- * This is an instrument display, so it keeps its own dark palette in both UI
- * themes the way a radar console stays dark in a lit room.
+ *  - the world is ~20 instanced or merged draw calls in total;
+ *  - no per-track React components inside the canvas (they would re-render at 60 fps).
  */
 
 import { useEffect, useMemo, useRef, type ComponentRef, type RefObject } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
+import { useQuery } from "@tanstack/react-query"
 import { Line, OrbitControls, Text } from "@react-three/drei"
 import * as THREE from "three"
 import type { Scenario, TrackView } from "@/api/types"
 import { LABEL_COLOURS } from "@/api/format"
+import { api } from "@/api/client"
 import { aim, snapAim, type ProjectedTrack } from "@/scene/aim"
+import { viewRequest } from "@/scene/viewRequest"
+import Landscape from "@/scene/world/Landscape"
+import { landscapeGeometry } from "@/scene/world/terrainGrid"
+import SkyRig from "@/scene/world/sky"
 
 const SCENE = {
   ring: "#697565",
@@ -28,10 +34,6 @@ const SCENE = {
   otherSensor: "#b8a8d4",
   label: "#a3ac9b",
   axis: "#3c3d37",
-  urban: "#2b2f26",
-  rural: "#232a20",
-  building: "#3c3d37",
-  buildingTop: "#697565",
   selected: "#fffaf3",
 } as const
 
@@ -40,63 +42,13 @@ const PAN_SPEED_MPS = 1400
 
 type OrbitHandle = ComponentRef<typeof OrbitControls>
 
-function terrainGeometry(scenario: Scenario): THREE.BufferGeometry {
-  // A coarse analytic stand-in for the terrain: the exact heightfield is only
-  // authoritative on the server, and the 3D view does not need its detail.
-  const size = 6000
-  const seg = 96
-  const geo = new THREE.PlaneGeometry(size, size, seg, seg)
+function terrainGeometry(): THREE.BufferGeometry {
+  // The ground is the server's own heightfield now, delivered with the landscape
+  // payload (see `scene/world/Landscape.tsx`). This flat plate only covers the
+  // moments before that payload arrives, so it stays deliberately cheap.
+  const geo = new THREE.PlaneGeometry(6000, 6000, 4, 4)
   geo.rotateX(-Math.PI / 2)
-  const preset = scenario.terrain.preset
-  const pos = geo.attributes["position"] as THREE.BufferAttribute
-  for (let i = 0; i < pos.count; i += 1) {
-    const x = pos.getX(i)
-    const y = pos.getZ(i)
-    const ridge = preset === "hills" ? Math.sin(x / 420) * Math.cos(y / 380) : 0
-    const rough = preset === "urban" ? Math.sin(x / 160) * Math.cos(y / 150) * 0.35 : 0
-    const height = ridge * scenario.terrain.scale_m * 0.7 + rough * 12
-    pos.setY(i, height)
-  }
-  geo.computeVertexNormals()
   return geo
-}
-
-/**
- * Buildings as one instanced box mesh.
- *
- * Bases sit on the datum rather than on the sampled heightfield: this view uses
- * a coarse analytic stand-in for the ground, and the urban preset varies by only
- * a few metres, so the boxes read correctly without resampling the real field.
- */
-function Buildings({ scenario }: { scenario: Scenario }): JSX.Element | null {
-  const mesh = useRef<THREE.InstancedMesh>(null)
-  const buildings = scenario.terrain.buildings
-  const dummy = useMemo(() => new THREE.Object3D(), [])
-
-  useFrame(() => {
-    const instanced = mesh.current
-    if (!instanced) return
-    instanced.count = buildings.length
-    for (let i = 0; i < buildings.length; i += 1) {
-      const b = buildings[i]
-      if (!b) continue
-      dummy.position.set(b.x, b.height_m / 2, b.y)
-      dummy.scale.set(b.width_m, b.height_m, b.depth_m)
-      dummy.rotation.set(0, 0, 0)
-      dummy.updateMatrix()
-      instanced.setMatrixAt(i, dummy.matrix)
-    }
-    instanced.instanceMatrix.needsUpdate = true
-  })
-
-  if (buildings.length === 0) return null
-
-  return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, buildings.length]} frustumCulled={false}>
-      <boxGeometry args={[1, 1, 1]} />
-      <meshBasicMaterial color={SCENE.building} wireframe />
-    </instancedMesh>
-  )
 }
 
 function TrackInstances({
@@ -201,8 +153,39 @@ function AimProjector({ tracks }: { tracks: TrackView[] }): null {
   return null
 }
 
-/** WASD pans the camera and its orbit target together across the ground plane. */
-function CameraPan({ controls }: { controls: RefObject<OrbitHandle | null> }): null {
+/** Height probe shared with the camera so it can never sink through the ground. */
+type GroundProbe = (x: number, y: number) => number
+
+/** Loads the generated world for a scenario and mounts it. */
+function World({
+  scenarioId,
+  groundRef,
+}: {
+  scenarioId: string
+  groundRef: { current: GroundProbe }
+}): JSX.Element | null {
+  const { data, isError } = useQuery({
+    queryKey: ["landscape", scenarioId],
+    queryFn: () => api.landscape(scenarioId),
+    enabled: scenarioId.length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+  const geometry = useMemo(() => (data ? landscapeGeometry(data) : null), [data])
+  useEffect(() => {
+    if (geometry) groundRef.current = geometry.heightAt
+  }, [geometry, groundRef])
+  if (isError || !data || !geometry) return null
+  return <Landscape spec={data} />
+}
+
+/** WASD pans the camera and its orbit target together, never through the ground. */
+function CameraPan({
+  controls,
+  groundRef,
+}: {
+  controls: RefObject<OrbitHandle | null>
+  groundRef: { current: GroundProbe }
+}): null {
   const camera = useThree((s) => s.camera)
   const held = useRef<Set<string>>(new Set())
   const forward = useMemo(() => new THREE.Vector3(), [])
@@ -239,27 +222,40 @@ function CameraPan({ controls }: { controls: RefObject<OrbitHandle | null> }): n
   useFrame((_, delta) => {
     const keys = held.current
     const orbit = controls.current
-    if (!orbit || keys.size === 0) return
+    const panning = keys.size > 0
+    if (orbit && panning) {
+      camera.getWorldDirection(forward)
+      forward.y = 0
+      if (forward.lengthSq() > 1e-9) {
+        forward.normalize()
+        right.crossVectors(forward, up).normalize()
+        move.set(0, 0, 0)
+        if (keys.has("w")) move.add(forward)
+        if (keys.has("s")) move.sub(forward)
+        if (keys.has("d")) move.add(right)
+        if (keys.has("a")) move.sub(right)
+        if (move.lengthSq() > 0) {
+          // Clamp the step so a stutter cannot teleport the view across the map.
+          const step = PAN_SPEED_MPS * Math.min(delta, 0.05)
+          move.normalize().multiplyScalar(step)
+          camera.position.add(move)
+          orbit.target.add(move)
+          orbit.update()
+        }
+      }
+    }
 
-    camera.getWorldDirection(forward)
-    forward.y = 0
-    if (forward.lengthSq() < 1e-9) return
-    forward.normalize()
-    right.crossVectors(forward, up).normalize()
-
-    move.set(0, 0, 0)
-    if (keys.has("w")) move.add(forward)
-    if (keys.has("s")) move.sub(forward)
-    if (keys.has("d")) move.add(right)
-    if (keys.has("a")) move.sub(right)
-    if (move.lengthSq() === 0) return
-
-    // Clamp the step so a stutter cannot teleport the view across the map.
-    const step = PAN_SPEED_MPS * Math.min(delta, 0.05)
-    move.normalize().multiplyScalar(step)
-    camera.position.add(move)
-    orbit.target.add(move)
-    orbit.update()
+    // Keep both the eye and the orbit target above the sampled ground, so the view
+    // can never end up inside a hill or under the terrain mesh.
+    const ground = groundRef.current
+    const floor = ground(camera.position.x, camera.position.z) + 4
+    if (camera.position.y < floor) {
+      camera.position.y = floor
+      if (orbit) {
+        orbit.target.y = Math.max(orbit.target.y, floor - 40)
+        orbit.update()
+      }
+    }
   })
 
   return null
@@ -270,7 +266,7 @@ function PerimeterRings({ scenario }: { scenario: Scenario }): JSX.Element {
   const protectedRadius = scenario.site.protected_radius_m
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 1, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 1.5, 0]}>
         <ringGeometry args={[protectedRadius, protectedRadius + 12, 64]} />
         <meshBasicMaterial
           color={SCENE.protectedRing}
@@ -280,7 +276,7 @@ function PerimeterRings({ scenario }: { scenario: Scenario }): JSX.Element {
         />
       </mesh>
       {rings.map((r) => (
-        <mesh key={r} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.5, 0]}>
+        <mesh key={r} rotation={[-Math.PI / 2, 0, 0]} position={[0, 1, 0]}>
           <ringGeometry args={[r, r + 3, 96]} />
           <meshBasicMaterial
             color={SCENE.ring}
@@ -298,7 +294,7 @@ function PerimeterRings({ scenario }: { scenario: Scenario }): JSX.Element {
           <mesh
             key={s.label}
             rotation={[-Math.PI / 2, 0, 0]}
-            position={[Math.cos(mid) * midR, 0.6, Math.sin(mid) * midR]}
+            position={[Math.cos(mid) * midR, 1.2, Math.sin(mid) * midR]}
           >
             <ringGeometry args={[Math.max(1, s.inner_m), s.outer_m, 48, 1, -half, half * 2]} />
             <meshBasicMaterial
@@ -318,12 +314,12 @@ function Sensors({ scenario }: { scenario: Scenario }): JSX.Element {
   return (
     <group>
       {scenario.sensors.map((s) => (
-        <group key={s.id} position={[s.x, s.z + 4, s.y]}>
+        <group key={s.id} position={[s.x, s.z + 2, s.y]}>
           <mesh>
-            <boxGeometry args={[14, 14, 14]} />
+            <boxGeometry args={[9, 9, 9]} />
             <meshBasicMaterial color={s.type === "radar" ? SCENE.radar : SCENE.otherSensor} />
           </mesh>
-          <Text position={[0, 14, 0]} fontSize={46} color={SCENE.label}>
+          <Text position={[0, 9, 0]} fontSize={14} color={SCENE.label}>
             {s.id}
           </Text>
         </group>
@@ -332,16 +328,61 @@ function Sensors({ scenario }: { scenario: Scenario }): JSX.Element {
   )
 }
 
-function Sky({ scenario }: { scenario: Scenario }): JSX.Element {
-  const tod = scenario.environment.time_of_day
-  const fog = 1 - Math.min(1, scenario.environment.visibility_m / 8000)
-  const colour = tod === "night" ? "#0b0f09" : tod === "dusk" ? "#1b2016" : "#3d4a35"
-  return (
-    <>
-      <color attach="background" args={[colour]} />
-      <fog attach="fog" args={[colour, 400, Math.max(900, 6000 * (1 - fog * 0.9))]} />
-    </>
-  )
+/**
+ * Moves the camera between the three inspection views.
+ *
+ * Ground puts the eye at human height looking at the site, Site is the tactical
+ * orbit the trainee works in, Top is a map-like overview. Transitions are damped
+ * so a click glides instead of cutting.
+ */
+function ViewController({
+  controls,
+  groundRef,
+}: {
+  controls: RefObject<OrbitHandle | null>
+  groundRef: { current: GroundProbe }
+}): null {
+  const camera = useThree((s) => s.camera)
+  const seen = useRef(0)
+  const from = useMemo(() => ({ pos: new THREE.Vector3(), target: new THREE.Vector3() }), [])
+  const to = useMemo(() => ({ pos: new THREE.Vector3(), target: new THREE.Vector3() }), [])
+  const blend = useRef(1)
+  const start = useMemo(() => new THREE.Vector3(), [])
+
+  useFrame(() => {
+    if (viewRequest.nonce === seen.current) return
+    seen.current = viewRequest.nonce
+    const ground = groundRef.current
+    if (viewRequest.preset === "ground") {
+      to.pos.set(430, ground(430, 540) + 3.4, 540)
+      to.target.set(0, ground(0, 0) + 30, 0)
+    } else if (viewRequest.preset === "top") {
+      to.pos.set(120, 5200, 1500)
+      to.target.set(0, 0, 0)
+    } else {
+      to.pos.set(720, 360, 980)
+      to.target.set(0, 0, 0)
+    }
+    from.pos.copy(camera.position)
+    from.target.copy(controls.current?.target ?? new THREE.Vector3())
+    blend.current = 0
+    start.copy(camera.position)
+  })
+
+  useFrame((_, delta) => {
+    if (blend.current >= 1) return
+    blend.current = Math.min(1, blend.current + delta * 1.6)
+    // Smoothstep, so the glide starts and ends gently.
+    const t = blend.current * blend.current * (3 - 2 * blend.current)
+    camera.position.lerpVectors(start, to.pos, t)
+    const orbit = controls.current
+    if (orbit) {
+      orbit.target.lerpVectors(from.target, to.target, t)
+      orbit.update()
+    }
+  })
+
+  return null
 }
 
 export default function TacticalScene({
@@ -355,28 +396,35 @@ export default function TacticalScene({
   selectedId: string | null
   onSelect: (id: string) => void
 }): JSX.Element {
-  const geo = useMemo(() => terrainGeometry(scenario), [scenario])
+  const geo = useMemo(() => terrainGeometry(), [])
   const controls = useRef<OrbitHandle | null>(null)
+  const groundRef = useRef<GroundProbe>(() => 0)
   const axes = useMemo(() => [new THREE.Vector3(-3000, 0, 0), new THREE.Vector3(3000, 0, 0)], [])
   const axesZ = useMemo(() => [new THREE.Vector3(0, 0, -3000), new THREE.Vector3(0, 0, 3000)], [])
 
   return (
     <Canvas
       className="scope"
-      camera={{ position: [0, 2200, 3200], fov: 45, near: 10, far: 12000 }}
+      shadows
+      camera={{ position: [720, 360, 980], fov: 55, near: 4, far: 26000 }}
       dpr={[1, 1.5]}
-      gl={{ antialias: true, powerPreference: "high-performance" }}
+      gl={{
+        antialias: true,
+        powerPreference: "high-performance",
+        toneMapping: THREE.ACESFilmicToneMapping,
+      }}
     >
-      <Sky scenario={scenario} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[1200, 2600, 900]} intensity={0.7} />
-      <mesh geometry={geo} position={[0, 0, 0]}>
-        <meshStandardMaterial
-          color={scenario.terrain.preset === "urban" ? SCENE.urban : SCENE.rural}
-          wireframe
-        />
+      <SkyRig
+        timeOfDay={scenario.environment.time_of_day}
+        visibilityM={scenario.environment.visibility_m}
+        shadowRadius={
+          scenario.site.ring_distances_m[scenario.site.ring_distances_m.length - 1] ?? 3000
+        }
+      />
+      <World scenarioId={scenario.id} groundRef={groundRef} />
+      <mesh geometry={geo} position={[0, -0.5, 0]} visible={false}>
+        <meshStandardMaterial color="#5d6b45" />
       </mesh>
-      <Buildings scenario={scenario} />
       <PerimeterRings scenario={scenario} />
       <Sensors scenario={scenario} />
       <TrackInstances tracks={tracks} selectedId={selectedId} onSelect={onSelect} />
@@ -386,11 +434,12 @@ export default function TacticalScene({
       <OrbitControls
         ref={controls}
         enableDamping
-        maxPolarAngle={Math.PI / 2.1}
-        minDistance={400}
-        maxDistance={9000}
+        maxPolarAngle={Math.PI / 2.05}
+        minDistance={40}
+        maxDistance={12000}
       />
-      <CameraPan controls={controls} />
+      <CameraPan controls={controls} groundRef={groundRef} />
+      <ViewController controls={controls} groundRef={groundRef} />
     </Canvas>
   )
 }
